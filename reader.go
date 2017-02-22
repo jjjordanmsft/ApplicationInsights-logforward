@@ -6,7 +6,6 @@ import (
     "fmt"
     "io"
     "os"
-    "syscall"
     "time"
 )
 
@@ -85,6 +84,15 @@ func MakeLogReader(infile string) (*LogReader, error) {
 func readStdin(logReader *LogReader) error {
     file := os.NewFile(0, "stdin")
     
+    stat, err := file.Stat()
+    if err != nil {
+        return fmt.Errorf("Error stat'ing stdin: %s", err.Error())
+    }
+    
+    if (stat.Mode() & os.ModeCharDevice) != 0 {
+        return fmt.Errorf("Refusing to read data from a terminal")
+    }
+    
     // Data stream
     go func() {
         buf := make([]byte, 2048)
@@ -119,7 +127,7 @@ func readStdin(logReader *LogReader) error {
             case ctl := <- logReader.control:
                 if ctl.close {
                     fmt.Fprintf(os.Stderr, "Got close signal\n")
-                    syscall.Close(0)
+                    file.Close()
                 } else if ctl.shutdown {
                     return
                 }
@@ -131,20 +139,35 @@ func readStdin(logReader *LogReader) error {
 }
 
 func readFifo(infile string, logReader *LogReader) error {
-    file, err := os.OpenFile(infile, os.O_RDONLY, 0)
+    file, err := os.OpenFile(infile, os.O_RDWR, 0)
     if err != nil {
         return err
     }
     
+    // FIFOs are tricky.  Here's how they end up working:
+    // If opened with O_RDONLY:
+    //   - Open blocks waiting for writer.
+    //   - File is closed when writer closes, Read is interrupted.
+    //   - Read cannot be interrupted by concurrent Close.
+    // If opened with O_RDWR (probably Linux-specific behavior):
+    //   - Open() does not block.
+    //   - File stays open when writer closes, can accept other
+    //     writers without reopening.
+    //   - Read still cannot be interrupted by concurrent Close.
+    // So we pick O_RDWR.  To signal the data goroutine to quit,
+    // we need to use a channel to signal interruption + write
+    // data to the pipe to get Read() to return.
+    
     logReader.closed = false
     events := make(chan LogEventMessage)
+    interrupt := make(chan bool, 1)
     
     // Data stream
     go func() {
         buf := make([]byte, 2048)
         writer := makeLogEventWriter(events, 0)
         
-        for {
+wait:	for {
             n, err := file.Read(buf)
             if err == io.EOF || n == 0 {
                 break
@@ -153,6 +176,15 @@ func readFifo(infile string, logReader *LogReader) error {
             if err != nil {
                 events <- LogEventMessage{err: fmt.Errorf("Error while reading %s: %s", infile, err.Error()), closed: true}
                 break
+            }
+            
+            // Check for interrupt signal
+            select {
+                case <- interrupt:
+                    file.Close()
+                    break wait
+                default:
+                    break
             }
             
             writer.Write(buf[0:n])
@@ -176,25 +208,31 @@ func readFifo(infile string, logReader *LogReader) error {
                 logReader.events <- event
             case ctl := <- logReader.control:
                 if ctl.close {
-                    file.Close()
+                    interrupt <- true
+                    file.WriteString("\n") // WAKE UP!
                 } else if ctl.reset {
                     fmt.Fprintln(os.Stderr, "Received reset signal")
-                    file.Close()
+                    interrupt <- true
+                    file.WriteString("\n") // WAKE UP!
                     
-                    // Wait until it shuts down
-waitloop:           for {
-                        select {
-                        case event := <- events:
-                            fmt.Fprintln(os.Stderr, "Got event while waiting for shutdown")
-                            if event.data != "" {
-                                logReader.events <- event
-                            }
+                    // Wait for close
+                    for {
+                        event := <- events
+                        closed := event.closed
+                        if event.data != "" {
+                            logReader.events <- event
+                        }
                         
-                        case ctl := <- logReader.control:
-                            fmt.Fprintln(os.Stderr, "Got control while waiting for shutdown")
-                            if ctl.shutdown {
-                                break waitloop
-                            }
+                        if closed {
+                            break
+                        }
+                    }
+                    
+                    // Wait for shutdown
+                    for {
+                        ctl := <- logReader.control
+                        if ctl.shutdown {
+                            break
                         }
                     }
                     

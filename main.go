@@ -7,6 +7,7 @@ import (
     "os"
     "os/signal"
     "syscall"
+    "time"
     
 //    "github.com/Microsoft/ApplicationInsights-Go/appinsights"
 )
@@ -27,7 +28,7 @@ func init() {
     flag.StringVar(&flagEndpoint, "endpoint", "", "ApplicationInsights ingestion endpoint (optional)")
     flag.StringVar(&flagRole, "role", "", "Telemetry role instance. Defaults to the machine hostname")
     flag.StringVar(&flagLogFormat, "logformat", "", "nginx log format")
-    flag.StringVar(&flagInfile, "infile", "-", "Input file, or '-' for stdin")
+    flag.StringVar(&flagInfile, "infile", "", "Input file, or '-' for stdin")
     flag.BoolVar(&flagTrace, "trace", false, "Don't try to parse input, just send as traces")
     flag.BoolVar(&flagPassStdout, "pass", false, "If specified, write log lines to stdout")
     flag.BoolVar(&flagPassStderr, "passerr", false, "If specified, write log lines to stderr")
@@ -39,6 +40,11 @@ func main() {
     logFormat := flagLogFormat
     if logFormat == "" {
         logFormat = defaultFormat
+    }
+    
+    if flagInfile == "" {
+        fmt.Fprintln(os.Stderr, "Must specify input file. See -help for usage.")
+        os.Exit(1)
     }
     
     logParser, err := MakeLogParser(logFormat, false)
@@ -69,7 +75,11 @@ func main() {
                 case syscall.SIGINT, syscall.SIGTERM:
                     fmt.Fprintln(os.Stderr, sig.String())
                     logReader.Close()
-                    <- done
+                    // Wait for done
+                    select {
+                        case <- done: break
+                        case <- time.After(time.Duration(250 * time.Millisecond)): break
+                    }
                     os.Exit(-int(sig.(syscall.Signal)))
                     return
                 }
