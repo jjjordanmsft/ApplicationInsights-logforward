@@ -4,6 +4,9 @@ package main
 import (
     "flag"
     "fmt"
+    "os"
+    "os/signal"
+    "syscall"
     
 //    "github.com/Microsoft/ApplicationInsights-Go/appinsights"
 )
@@ -19,24 +22,12 @@ var (
     flagPassStderr	bool
 )
 
-var (
-    lines = [...]string {
-        "192.168.0.1 - - [20/Feb/2017:13:06:06 +0000] \"GET / HTTP/1.1\" 0.000 304 0 \"-\" \"Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/56.0.2924.87 Safari/537.36\" \"-\"",
-        "192.168.0.1 - - [20/Feb/2017:13:06:09 +0000] \"GET / HTTP/1.1\" 0.000 200 612 \"-\" \"Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/56.0.2924.87 Safari/537.36\" \"-\"",
-        "192.168.0.1 - - [20/Feb/2017:13:06:09 +0000] \"GET /favicon.ico HTTP/1.1\" 0.000 404 571 \"http://52.183.35.10/\" \"Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/56.0.2924.87 Safari/537.36\" \"-\"",
-        "192.168.0.1 - - [20/Feb/2017:13:06:14 +0000] \"GET / HTTP/1.1\" 0.000 200 612 \"-\" \"Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/56.0.2924.87 Safari/537.36\" \"-\"",
-        "192.168.0.1 - - [20/Feb/2017:13:06:14 +0000] \"GET /favicon.ico HTTP/1.1\" 0.000 404 571 \"http://52.183.35.10/\" \"Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/56.0.2924.87 Safari/537.36\" \"-\"",
-        "~silly~"}
-)
-
-var myLine = "$remote_addr - $remote_user [$time_local] \"$request\" $request_time $status $body_bytes_sent \"$http_referer\" \"$http_user_agent\""
-
 func init() {
     flag.StringVar(&flagIkey, "ikey", "", "ApplicationInsights instrumentation key")
     flag.StringVar(&flagEndpoint, "endpoint", "", "ApplicationInsights ingestion endpoint (optional)")
     flag.StringVar(&flagRole, "role", "", "Telemetry role instance. Defaults to the machine hostname")
     flag.StringVar(&flagLogFormat, "logformat", "", "nginx log format")
-    flag.StringVar(&flagInfile, "infile", "", "Input file, or '-' for stdin")
+    flag.StringVar(&flagInfile, "infile", "-", "Input file, or '-' for stdin")
     flag.BoolVar(&flagTrace, "trace", false, "Don't try to parse input, just send as traces")
     flag.BoolVar(&flagPassStdout, "pass", false, "If specified, write log lines to stdout")
     flag.BoolVar(&flagPassStderr, "passerr", false, "If specified, write log lines to stderr")
@@ -47,30 +38,74 @@ func main() {
     
     logFormat := flagLogFormat
     if logFormat == "" {
-        //logFormat = defaultFormat
-        logFormat = myLine
+        logFormat = defaultFormat
     }
     
-    parser, err := MakeLogParser(logFormat, false)
+    logParser, err := MakeLogParser(logFormat, false)
     if err != nil {
-        fmt.Printf("Error: %s\n", err.Error())
-        return
+        fmt.Fprintf(os.Stderr, "Error initializing log parser: %s\n", err.Error())
+        os.Exit(1)
     }
     
-    for _, line := range lines {
-        m, err := parser.parseLogLine(line)
-//        fmt.Printf("Map=%q\n\n", m)
-        if err == nil {
-            name, _ := parseName(m)
-            ts, _ := parseTimestamp(m)
-            dur, _ := parseDuration(m)
-            code, _ := parseResponseCode(m)
-            succ, _ := parseSuccess(m)
-            url, _ := parseUrl(m)
-            
-            fmt.Printf("Request %q\n  * URL = %q\n  * Timestamp = %q\n  * Code = %q\n  * Duration = %q\n  * Success = %q\n\n", name, url, ts, code, dur, succ)
-        } else {
-            fmt.Printf("error parsing line: %s\n\n", err.Error())
+    logReader, err := MakeLogReader(flagInfile)
+    if err != nil {
+        fmt.Fprintf(os.Stderr, "Error initializing log reader: %s\n", err.Error())
+        os.Exit(1)
+    }
+    
+    signalc := make(chan os.Signal, 2)
+    signal.Notify(signalc, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
+    
+    done := make(chan bool)
+    go readLoop(logReader, logParser, done)
+    
+    for {
+        select {
+            case sig := <- signalc:
+                switch sig {
+                case syscall.SIGHUP:
+                    fmt.Fprintln(os.Stderr, "Resetting logfile")
+                    logReader.Reset()
+                case syscall.SIGINT, syscall.SIGTERM:
+                    fmt.Fprintln(os.Stderr, sig.String())
+                    logReader.Close()
+                    <- done
+                    os.Exit(-int(sig.(syscall.Signal)))
+                    return
+                }
+            case <- done:
+                os.Exit(0)
         }
     }
 }
+
+func readLoop(logReader *LogReader, logParser *LogParser, done chan bool) {
+    events := logReader.Events()
+    for {
+        event := <- events
+        if event.data != "" {
+            fmt.Printf("Log line: %s\n", event.data)
+            m, err := logParser.parseLogLine(event.data)
+            if err == nil {
+                name, _ := parseName(m)
+                ts, _ := parseTimestamp(m)
+                dur, _ := parseDuration(m)
+                code, _ := parseResponseCode(m)
+                succ, _ := parseSuccess(m)
+                url, _ := parseUrl(m)
+                
+                fmt.Printf("Request %q\n  * URL = %q\n  * Timestamp = %q\n  * Code = %q\n  * Duration = %q\n  * Success = %q\n\n", name, url, ts, code, dur, succ)
+            } else {
+                fmt.Printf("error parsing line: %s\n\n", err.Error())
+            }
+        }
+        
+        if event.closed {
+            fmt.Fprintf(os.Stderr, "Input closed.\n")
+            break
+        }
+    }
+    
+    done <- true
+}
+
