@@ -5,6 +5,7 @@ import (
     "bytes"
     "fmt"
     "io"
+    "log"
     "os"
     "time"
 )
@@ -112,7 +113,7 @@ func readStdin(logReader *LogReader) error {
             writer.Write(buf[0:n])
         }
         
-        fmt.Fprintf(os.Stderr, "Broke out of loop\n")
+        log.Print("Exiting read loop")
         
         file.Close()
         logReader.closed = true
@@ -126,7 +127,7 @@ func readStdin(logReader *LogReader) error {
             select {
             case ctl := <- logReader.control:
                 if ctl.close {
-                    fmt.Fprintf(os.Stderr, "Got close signal\n")
+                    log.Print("Received close signal")
                     file.Close()
                 } else if ctl.shutdown {
                     return
@@ -190,14 +191,12 @@ wait:	for {
             writer.Write(buf[0:n])
         }
         
-        fmt.Fprintf(os.Stderr, "Broke out of FIFO loop\n")
+        log.Print("Exited FIFO loop")
         
         logReader.closed = true
         events <- LogEventMessage{closed: true}
         logReader.control <- LogControlMessage{shutdown: true}
     }()
-    
-    fmt.Fprintln(os.Stderr, "Starting fifo loop")
     
     // Control stream
     go func() {
@@ -211,7 +210,7 @@ wait:	for {
                     interrupt <- true
                     file.WriteString("\n") // WAKE UP!
                 } else if ctl.reset {
-                    fmt.Fprintln(os.Stderr, "Received reset signal")
+                    log.Print("Received reset signal")
                     interrupt <- true
                     file.WriteString("\n") // WAKE UP!
                     
@@ -236,7 +235,7 @@ wait:	for {
                         }
                     }
                     
-                    fmt.Fprintln(os.Stderr, "Re-entering readFifo")
+                    log.Print("Re-entering readFifo")
                     // Re-open the file
                     err := readFifo(infile, logReader)
                     if err != nil {
@@ -307,7 +306,7 @@ func readFile(infile string, logReader *LogReader) error {
                 time.Sleep(time.Duration(200 * time.Millisecond))
                 continue
             } else if err != nil {
-                fmt.Fprintf(os.Stderr, "Error during read was: %s\n", err.Error())
+                log.Printf("Error during read was: %s", err.Error())
                 file.Close()
                 logReader.closed = true
                 events <- LogEventMessage{err: fmt.Errorf("Error while reading %s: %s", infile, err.Error()), closed: true}

@@ -4,6 +4,8 @@ package main
 import (
     "flag"
     "fmt"
+    "io/ioutil"
+    "log"
     "os"
     "os/signal"
     "syscall"
@@ -21,6 +23,8 @@ var (
     flagTrace		bool
     flagPassStdout	bool
     flagPassStderr	bool
+    flagDebug		bool
+    flagQuiet		bool
 )
 
 func init() {
@@ -32,6 +36,8 @@ func init() {
     flag.BoolVar(&flagTrace, "trace", false, "Don't try to parse input, just send as traces")
     flag.BoolVar(&flagPassStdout, "pass", false, "If specified, write log lines to stdout")
     flag.BoolVar(&flagPassStderr, "passerr", false, "If specified, write log lines to stderr")
+    flag.BoolVar(&flagDebug, "debug", false, "Show debugging output")
+    flag.BoolVar(&flagQuiet, "quiet", false, "Don't write any output messages")
 }
 
 func main() {
@@ -42,6 +48,17 @@ func main() {
         logFormat = defaultFormat
     }
     
+    if flagDebug {
+        log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
+    } else {
+        log.SetOutput(ioutil.Discard)
+    }
+    
+    msgs := log.New(os.Stderr, "AI-nginx: ", log.Ldate | log.Ltime)
+    if flagQuiet {
+        msgs.SetOutput(ioutil.Discard)
+    }
+    
     if flagInfile == "" {
         fmt.Fprintln(os.Stderr, "Must specify input file. See -help for usage.")
         os.Exit(1)
@@ -49,13 +66,13 @@ func main() {
     
     logParser, err := MakeLogParser(logFormat, false)
     if err != nil {
-        fmt.Fprintf(os.Stderr, "Error initializing log parser: %s\n", err.Error())
+        msgs.Printf("Error initializing log parser: %s\n", err.Error())
         os.Exit(1)
     }
     
     logReader, err := MakeLogReader(flagInfile)
     if err != nil {
-        fmt.Fprintf(os.Stderr, "Error initializing log reader: %s\n", err.Error())
+        msgs.Printf("Error initializing log reader: %s\n", err.Error())
         os.Exit(1)
     }
     
@@ -63,25 +80,26 @@ func main() {
     signal.Notify(signalc, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
     
     done := make(chan bool)
-    go readLoop(logReader, logParser, done)
+    go readLoop(logReader, logParser, msgs, done)
     
     for {
         select {
             case sig := <- signalc:
+                msgs.Println(sig.String())
                 switch sig {
                 case syscall.SIGHUP:
-                    fmt.Fprintln(os.Stderr, "Resetting logfile")
+                    msgs.Println("Resetting logfile")
                     logReader.Reset()
                 case syscall.SIGINT, syscall.SIGTERM:
-                    fmt.Fprintln(os.Stderr, sig.String())
                     logReader.Close()
+                    
                     // Wait for done
                     select {
                         case <- done: break
                         case <- time.After(time.Duration(250 * time.Millisecond)): break
                     }
+                    
                     os.Exit(-int(sig.(syscall.Signal)))
-                    return
                 }
             case <- done:
                 os.Exit(0)
@@ -89,7 +107,7 @@ func main() {
     }
 }
 
-func readLoop(logReader *LogReader, logParser *LogParser, done chan bool) {
+func readLoop(logReader *LogReader, logParser *LogParser, msgs *log.Logger, done chan bool) {
     events := logReader.Events()
     for {
         event := <- events
@@ -111,11 +129,11 @@ func readLoop(logReader *LogReader, logParser *LogParser, done chan bool) {
         }
         
         if event.err != nil {
-            fmt.Fprintf(os.Stderr, "Received error message: %s\n", event.err.Error())
+            msgs.Println(event.err.Error())
         }
         
         if event.closed {
-            fmt.Fprintf(os.Stderr, "Input closed.\n")
+            msgs.Println("Input closed.")
             break
         }
     }
