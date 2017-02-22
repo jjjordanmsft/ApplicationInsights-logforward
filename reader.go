@@ -2,11 +2,11 @@
 package main
 
 import (
-    "bufio"
     "bytes"
     "fmt"
     "io"
     "os"
+    "syscall"
     "time"
 )
 
@@ -83,15 +83,25 @@ func MakeLogReader(infile string) (*LogReader, error) {
 }
 
 func readStdin(logReader *LogReader) error {
-    file := os.Stdin
-    scanner := bufio.NewScanner(file)
+    file := os.NewFile(0, "stdin")
     
     // Data stream
     go func() {
-        for scanner.Scan() {
-            fmt.Fprintf(os.Stderr, "Reading a line...\n")
-            ln := scanner.Text()
-            logReader.events <- LogEventMessage{data: ln}
+        buf := make([]byte, 2048)
+        writer := makeLogEventWriter(logReader.events, 0)
+        
+        for {
+            n, err := file.Read(buf)
+            if err == io.EOF || n == 0 {
+                break
+            }
+            
+            if err != nil {
+                logReader.events <- LogEventMessage{err: fmt.Errorf("Error while reading stdin: %s", err.Error())}
+                break
+            }
+            
+            writer.Write(buf[0:n])
         }
         
         fmt.Fprintf(os.Stderr, "Broke out of loop\n")
@@ -109,10 +119,7 @@ func readStdin(logReader *LogReader) error {
             case ctl := <- logReader.control:
                 if ctl.close {
                     fmt.Fprintf(os.Stderr, "Got close signal\n")
-                    err := file.Close()
-                    if err != nil {
-                        panic(err)
-                    }
+                    syscall.Close(0)
                 } else if ctl.shutdown {
                     return
                 }
@@ -135,7 +142,7 @@ func readFifo(infile string, logReader *LogReader) error {
     // Data stream
     go func() {
         buf := make([]byte, 2048)
-        var sbuf bytes.Buffer
+        writer := makeLogEventWriter(events, 0)
         
         for {
             n, err := file.Read(buf)
@@ -148,29 +155,9 @@ func readFifo(infile string, logReader *LogReader) error {
                 break
             }
             
-            st := 0
-            for st < n {
-                idx := bytes.IndexByte(buf[st:n], '\n')
-                if idx < 0 {
-                    sbuf.Write(buf[st:n])
-                    break
-                } else {
-                    sbuf.Write(buf[st:st + idx])
-                    if sbuf.Len() > 0 {
-                        events <- LogEventMessage{data: sbuf.String()}
-                        sbuf.Reset()
-                    }
-                    st += idx + 1
-                }
-            }
+            writer.Write(buf[0:n])
         }
-/*        
-        scanner := bufio.NewScanner(file)
-        for scanner.Scan() {
-            ln := scanner.Text()
-            events <- LogEventMessage{data: ln}
-        }
-*/
+        
         fmt.Fprintf(os.Stderr, "Broke out of FIFO loop\n")
         
         logReader.closed = true
@@ -250,12 +237,12 @@ func readFile(infile string, logReader *LogReader) error {
         }
         
         buf := make([]byte, 2048)
-        skip := false
+        var skip int
         
         // If empty, no need to seek
         if stat.Size() > 0 {
             // Seek near end of file, check for line ending
-            file.Seek(1, 2)
+            file.Seek(-1, 2)
             n, err := file.Read(buf[0:1])
             if err != nil {
                 file.Close()
@@ -265,14 +252,14 @@ func readFile(infile string, logReader *LogReader) error {
             }
             
             if n == 1 && buf[0] == '\n' {
-                skip = false
+                skip = 0
             } else {
                 // Still the end of a partial line, so skip it
-                skip = true
+                skip = 1
             }
         }
         
-        var sbuf bytes.Buffer
+        writer := makeLogEventWriter(events, skip)
         
         // Read data
         for {
@@ -282,6 +269,7 @@ func readFile(infile string, logReader *LogReader) error {
                 time.Sleep(time.Duration(200 * time.Millisecond))
                 continue
             } else if err != nil {
+                fmt.Fprintf(os.Stderr, "Error during read was: %s\n", err.Error())
                 file.Close()
                 logReader.closed = true
                 events <- LogEventMessage{err: fmt.Errorf("Error while reading %s: %s", infile, err.Error()), closed: true}
@@ -289,29 +277,7 @@ func readFile(infile string, logReader *LogReader) error {
                 return
             }
             
-            st := 0
-            for st < n {
-                idx := bytes.IndexByte(buf[st:n], '\n')
-                if idx < 0 {
-                    if !skip {
-                        sbuf.Write(buf[st:n])
-                    }
-                    
-                    break
-                }
-                
-                if !skip {
-                    sbuf.Write(buf[st:st + idx])
-                    if sbuf.Len() > 0 {
-                        events <- LogEventMessage{data: sbuf.String()}
-                        sbuf.Reset()
-                    }
-                    st += idx + 1
-                } else {
-                    st += idx + 1
-                    skip = false
-                }
-            }
+            writer.Write(buf[0:n])
         }
     }()
     
@@ -330,25 +296,32 @@ func readFile(infile string, logReader *LogReader) error {
                 if ctl.reset {
                     file.Close()
                     
-                    // Wait for shutdown
-waitloop:           for {
-                        select {
-                        case event := <- events:
-                            if event.data != "" {
-                                logReader.events <- event
-                            }
+                    // Wait for close
+                    for !logReader.closed {
+                        event := <- events
+                        closed := event.closed
+                        if event.data != "" {
+                            event.closed = false
+                            logReader.events <- event
+                        }
                         
-                        case ctl := <- logReader.control:
-                            if ctl.shutdown {
-                                break waitloop
-                            }
+                        if closed {
+                            break
+                        }
+                    }
+                    
+                    // Wait for shutdown
+                    for {
+                        ctl := <- logReader.control
+                        if ctl.shutdown {
+                            break
                         }
                     }
                     
                     // Re-open
                     err := readFile(infile, logReader)
                     if err != nil {
-                        logReader.events <- LogEventMessage{err: fmt.Errorf("Error trying to reopn %s: %s", infile, err.Error())}
+                        logReader.events <- LogEventMessage{err: fmt.Errorf("Error trying to reopn %s: %s", infile, err.Error()), closed: true}
                     }
                     
                     return
@@ -362,4 +335,41 @@ waitloop:           for {
     }()
     
     return nil
+}
+
+type logEventWriter struct {
+    buffer	bytes.Buffer
+    events	chan LogEventMessage
+    skip	int
+}
+
+func makeLogEventWriter(events chan LogEventMessage, skip int) *logEventWriter {
+    return &logEventWriter{events: events, skip: skip}
+}
+
+func (writer *logEventWriter) Write(data []byte) {
+    for len(data) > 0 {
+        idx := bytes.IndexByte(data, '\n')
+        if idx < 0 {
+            if writer.skip == 0 {
+                writer.buffer.Write(data)
+            }
+            return
+        } else {
+            if writer.skip == 0 {
+                if writer.buffer.Len() == 0 {
+                    // Skip writing intermediate to buffer
+                    writer.events <- LogEventMessage{data: string(data[0:idx])}
+                } else {
+                    writer.buffer.Write(data[0:idx])
+                    writer.events <- LogEventMessage{data: writer.buffer.String()}
+                    writer.buffer.Reset()
+                }
+            } else {
+                writer.skip -= 1
+            }
+            
+            data = data[idx + 1:len(data)]
+        }
+    }
 }

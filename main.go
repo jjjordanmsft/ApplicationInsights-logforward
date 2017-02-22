@@ -100,6 +100,10 @@ func readLoop(logReader *LogReader, logParser *LogParser, done chan bool) {
             }
         }
         
+        if event.err != nil {
+            fmt.Fprintf(os.Stderr, "Received error message: %s\n", event.err.Error())
+        }
+        
         if event.closed {
             fmt.Fprintf(os.Stderr, "Input closed.\n")
             break
