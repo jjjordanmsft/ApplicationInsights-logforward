@@ -26,6 +26,7 @@ var (
     flagRoleInstance	string
     flagInfile		string
     flagOutfile		string
+    flagCustom		customProperties
     flagDebug		bool
     flagQuiet		bool
     
@@ -41,6 +42,7 @@ func InitFlags() {
     flag.StringVar(&flagOutfile, "outfile", "", "Output file, '-' for stdout, 'stderr' for stderr")
     flag.BoolVar(&flagDebug, "debug", false, "Show debugging output")
     flag.BoolVar(&flagQuiet, "quiet", false, "Don't write any output messages")
+    flag.Var(&flagCustom, "custom", "Define custom property like 'key=value'. Can be used multiple times")
 }
 
 func Start(name string, logHandler LogHandler) {
@@ -157,6 +159,12 @@ func Track(t appinsights.Telemetry) {
         cloud := t.Context().Cloud()
         cloud.SetRoleName(flagRole)
         cloud.SetRoleInstance(flagRoleInstance)
+        if flagCustom != nil {
+            for k, v := range flagCustom {
+                t.SetProperty(k, v)
+            }
+        }
+        
         tclient.Track(t)
     }
 }
