@@ -8,6 +8,9 @@ import (
 type customProperties map[string]string
 
 func (props *customProperties) String() string {
+    if *props == nil {
+        return ""
+    }
     return fmt.Sprintf("%q", map[string]string(*props))
 }
 

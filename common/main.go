@@ -42,7 +42,7 @@ func InitFlags() {
     flag.StringVar(&flagOutfile, "outfile", "", "Output file, '-' for stdout, 'stderr' for stderr")
     flag.BoolVar(&flagDebug, "debug", false, "Show debugging output")
     flag.BoolVar(&flagQuiet, "quiet", false, "Don't write any output messages")
-    flag.Var(&flagCustom, "custom", "Define custom property like 'key=value'. Can be used multiple times")
+    flag.Var(&flagCustom, "custom", "Include custom property in telemetry like 'key=value'. Can be used multiple times")
 }
 
 func Start(name string, logHandler LogHandler) {
