@@ -1,5 +1,5 @@
 
-package main
+package common
 
 import (
     "bytes"

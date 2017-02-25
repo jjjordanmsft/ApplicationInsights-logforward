@@ -43,7 +43,7 @@ type LogParser struct {
     jsonEscape	bool
 }
 
-func MakeLogParser(logFormat string, jsonEscape bool) (*LogParser, error) {
+func NewLogParser(logFormat string, jsonEscape bool) (*LogParser, error) {
     regexExpr := makeLogRegexp(logFormat, jsonEscape)
     regex, err := regexp.Compile(regexExpr)
     if err != nil {
