@@ -19,6 +19,23 @@ const (
 
 var (
     varRE = regexp.MustCompile("\\$[a-zA-Z0-9_]+")
+    ignoreProperties = map[string]bool{
+        "host": true,
+        "http_referer": true,
+        "http_user_agent": true,
+        "http_x_forwarded_for": true,
+        "remote_addr": true,
+        "remote_user": true,
+        "request": true,
+        "request_method": true,
+        "request_path": true,
+        "request_time": true,
+        "request_uri": true,
+        "scheme": true,
+        "status": true,
+        "time_iso8601": true,
+        "time_local": true,
+        "uri": true}
 )
 
 type LogParser struct {
@@ -123,7 +140,40 @@ func (parser *LogParser) CreateTelemetry(line string) (*appinsights.RequestTelem
         return nil, err
     }
     
-    telem := appinsights.NewRequestTelemetry(name, timestamp, duration, responseCode, success)
+    method, err := parseMethod(log)
+    if err != nil {
+        return nil, err
+    }
+    
+    url, err := parseUrl(log)
+    if err != nil {
+        return nil, err
+    }
+    
+    telem := appinsights.NewRequestTelemetry(name, method, url, timestamp, duration, responseCode, success)
+    
+    // Optional properties
+    context := telem.Context()
+    
+    if useragent, ok := log["http_user_agent"]; ok {
+        context.User().SetUserAgent(useragent)
+    }
+    
+    if userid, ok := log["remote_user"]; ok {
+        context.User().SetAuthenticatedUserId(userid)
+    }
+    
+    if clientip, err := parseClientIp(log); err != nil {
+        context.Location().SetIp(clientip)
+    }
+    
+    // Anything else in the log that isn't covered here should be included
+    // as properties, as we assume if it's in the log you want that data.
+    for k, v := range log {
+        if _, ok := ignoreProperties[k]; !ok {
+            telem.SetProperty(k, v)
+        }
+    }
     
     return telem, nil
 }
@@ -131,6 +181,14 @@ func (parser *LogParser) CreateTelemetry(line string) (*appinsights.RequestTelem
 func parseName(log map[string]string) (string, error) {
     if val, ok := log["request"]; ok {
         return val, nil
+    }
+    
+    if url, err := parseUrl(log); err == nil {
+        if method, err := parseMethod(log); err == nil {
+            return fmt.Sprintf("%s %s", method, url), nil
+        } else {
+            return url, nil
+        }
     }
     
     return "", fmt.Errorf("No key exists to get request name")
@@ -199,7 +257,7 @@ func parseUrl(log map[string]string) (string, error) {
     }
     
     // Have each component piece
-    scheme, schemeok := log["schema"]
+    scheme, schemeok := log["scheme"]
     path, pathok := log["request_path"]
     vhost, vhostok := log["host"]
     request, requestok := log["request"]
@@ -231,4 +289,39 @@ func parseUrl(log map[string]string) (string, error) {
     }
     
     return reqpath.String(), nil
+}
+
+func parseMethod(log map[string]string) (string, error) {
+    if val, ok := log["request_method"]; ok {
+        return val, nil
+    }
+    
+    if val, ok := log["request"]; ok {
+        parts := strings.Split(val, " ")
+        if len(parts) == 3 {
+            return parts[0], nil
+        }
+    }
+    
+    return "", fmt.Errorf("Request method not in log")
+}
+
+func parseReferer(log map[string]string) (string, error) {
+    if val, ok := log["http_referer"]; ok {
+        return val, nil
+    }
+    
+    return "", fmt.Errorf("Referer not in log")
+}
+
+func parseClientIp(log map[string]string) (string, error) {
+    if val, ok := log["remote_addr"]; ok {
+        return val, nil
+    }
+    
+    if val, ok := log["http_x_forwarded_for"]; ok {
+        return val, nil
+    }
+    
+    return "", fmt.Errorf("Client IP address not in log")
 }
