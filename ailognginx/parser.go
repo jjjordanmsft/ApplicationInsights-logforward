@@ -159,16 +159,18 @@ func (parser *LogParser) CreateTelemetry(line string) (*appinsights.RequestTelem
         context.User().SetUserAgent(useragent)
     }
     
-    if userid, ok := log["remote_user"]; ok {
+    if userid, err := parseUserId(log); err == nil {
         context.User().SetAuthenticatedUserId(userid)
     }
     
-    if clientip, err := parseClientIp(log); err != nil {
+    if clientip, err := parseClientIp(log); err == nil {
         context.Location().SetIp(clientip)
     }
     
+    context.Operation().SetName(name)
+    
     // Anything else in the log that isn't covered here should be included
-    // as properties, as we assume if it's in the log you want that data.
+    // as properties. We assume that if it's in the log, you want that data.
     for k, v := range log {
         if _, ok := ignoreProperties[k]; !ok {
             telem.SetProperty(k, v)
@@ -246,33 +248,30 @@ func parseSuccess(log map[string]string) (bool, error) {
 }
 
 func parseUrl(log map[string]string) (string, error) {
-    // Ideal input
+    // We try to piece this together from various things we find in the log
+    var reqpath *url.URL
+    
     if val, ok := log["request_uri"]; ok {
-        return val, nil
+        reqpath = combinePath(nil, val)
     }
     
-    // $uri can change around depending on config, this may be OK
-    if uri, ok := log["uri"]; ok {
-        return uri, nil
+    if val, ok := log["request_path"]; ok {
+        reqpath = combinePath(reqpath, val)
+    }
+    
+    if val, ok := log["uri"]; ok {
+        reqpath = combinePath(reqpath, val)
     }
     
     // Have each component piece
     scheme, schemeok := log["scheme"]
-    path, pathok := log["request_path"]
     vhost, vhostok := log["host"]
     request, requestok := log["request"]
-    
-    // Try to piece together as much as we can
-    var reqpath *url.URL
-    
-    if pathok {
-        reqpath, _ = url.Parse(path)
-    }
     
     if requestok {
         parts := strings.Split(request, " ")
         if len(parts) == 3 {
-            reqpath, _ = url.Parse(parts[1])
+            reqpath = combinePath(reqpath, parts[1])
         }
     }
     
@@ -289,6 +288,30 @@ func parseUrl(log map[string]string) (string, error) {
     }
     
     return reqpath.String(), nil
+}
+
+func combinePath(uri *url.URL, path string) *url.URL {
+    if pathURI, err := url.Parse(path); err == nil {
+        if uri == nil {
+            return pathURI
+        }
+        
+        if uri.Scheme == "" {
+            uri.Scheme = pathURI.Scheme
+        }
+        
+        if uri.Host == "" {
+            uri.Host = pathURI.Host
+        }
+        
+        if uri.Path == "" {
+            uri.Path = pathURI.Path
+        }
+        
+        return uri
+    } else {
+        return uri
+    }
 }
 
 func parseMethod(log map[string]string) (string, error) {
@@ -324,4 +347,16 @@ func parseClientIp(log map[string]string) (string, error) {
     }
     
     return "", fmt.Errorf("Client IP address not in log")
+}
+
+func parseUserId(log map[string]string) (string, error) {
+    if val, ok := log["remote_user"]; ok {
+        if val == "-" {
+            return "", nil
+        } else {
+            return val, nil
+        }
+    }
+    
+    return "", fmt.Errorf("User ID not in log")
 }

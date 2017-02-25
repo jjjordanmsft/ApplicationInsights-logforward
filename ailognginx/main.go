@@ -40,7 +40,7 @@ func (handler *NginxHandler) Initialize(msgs *log.Logger) error {
 
 func (handler *NginxHandler) Receive(line string) error {
     t, err := handler.parser.CreateTelemetry(line)
-    if err != nil {
+    if err == nil && t != nil {
         common.Track(t)
     }
     

@@ -46,6 +46,9 @@ func InitFlags() {
 func Start(name string, logHandler LogHandler) {
     if flagDebug {
         log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
+        
+        ailistener := appinsights.NewDiagnosticsMessageListener()
+        go ailistener.ProcessMessages(writeAiLog)
     } else {
         log.SetOutput(ioutil.Discard)
     }
@@ -129,7 +132,11 @@ func readLoop(logReader *LogReader, logHandler LogHandler, msgs *log.Logger, don
     for {
         event := <- events
         if event.data != "" {
-            logHandler.Receive(event.data)
+            log.Printf("Log line: %s", event.data)
+            err := logHandler.Receive(event.data)
+            if err != nil {
+                log.Printf("Error was: %s", err.Error())
+            }
         }
         
         if event.err != nil {
@@ -146,8 +153,14 @@ func readLoop(logReader *LogReader, logHandler LogHandler, msgs *log.Logger, don
 }
 
 func Track(t appinsights.Telemetry) {
-    cloud := t.Context().Cloud()
-    cloud.SetRoleName(flagRole)
-    cloud.SetRoleInstance(flagRoleInstance)
-    tclient.Track(t)
+    if t != nil {
+        cloud := t.Context().Cloud()
+        cloud.SetRoleName(flagRole)
+        cloud.SetRoleInstance(flagRoleInstance)
+        tclient.Track(t)
+    }
+}
+
+func writeAiLog(msg string) {
+    log.Println(msg)
 }
