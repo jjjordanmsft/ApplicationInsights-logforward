@@ -33,11 +33,11 @@ func main() {
     common.InitFlags()
     flag.Var(&handler.filter, "filter", "Include lines that match this regex")
     flag.Var(&handler.filterOut, "filterout", "Discard lines that match this regex")
-    flag.IntVar(&handler.batchTime, "batch", 0, "Batch output for n seconds and send a single trace")
-    flag.StringVar(&handler.sevstring, "severity", "information", "Severity level logs in trace telemetry: Verbose, Information, Warning, Error, Critical")
+    flag.IntVar(&handler.batchTime, "batch", 0, "Batch output for n seconds and send as a single trace")
+    flag.StringVar(&handler.sevstring, "severity", "information", "Severity level in trace telemetry: Verbose, Information, Warning, Error, Critical")
     flag.Parse()
     
-    common.Start("ailognginx", handler)
+    common.Start("ailogtrace", handler)
 }
 
 type TraceHandler struct {
