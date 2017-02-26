@@ -12,7 +12,7 @@ func main() {
     handler := &NginxHandler{}
 
     common.InitFlags()
-    flag.StringVar(&handler.format, "format", "", "nginx log format")
+    flag.StringVar(&handler.format, "format", "", "nginx log format (required)")
     flag.BoolVar(&handler.jsonEscape, "jsonescape", false, "whether the nginx log is JSON-escaped")
     flag.Parse()
     

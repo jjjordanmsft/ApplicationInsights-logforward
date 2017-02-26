@@ -34,11 +34,11 @@ var (
 )
 
 func InitFlags() {
-    flag.StringVar(&flagIkey, "ikey", "", "ApplicationInsights instrumentation key")
-    flag.StringVar(&flagEndpoint, "endpoint", "", "ApplicationInsights ingestion endpoint (optional)")
+    flag.StringVar(&flagIkey, "ikey", "", "ApplicationInsights instrumentation key (required)")
+    flag.StringVar(&flagEndpoint, "endpoint", "", "ApplicationInsights ingestion endpoint")
     flag.StringVar(&flagRole, "role", "", "Telemetry role name. Defaults to the machine hostname")
     flag.StringVar(&flagRoleInstance, "roleinstance", "", "Telemetry role instance. Defaults to the machine hostname")
-    flag.StringVar(&flagInfile, "in", "", "Input file, or '-' for stdin")
+    flag.StringVar(&flagInfile, "in", "", "Input file, or '-' for stdin (required)")
     flag.StringVar(&flagOutfile, "out", "", "Output file, '-' for stdout, 'stderr' for stderr")
     flag.BoolVar(&flagDebug, "debug", false, "Show debugging output")
     flag.BoolVar(&flagQuiet, "quiet", false, "Don't write any output messages")

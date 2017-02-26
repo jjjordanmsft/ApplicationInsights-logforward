@@ -33,13 +33,13 @@ is:
   -debug
         Show debugging output
   -endpoint string
-        ApplicationInsights ingestion endpoint (optional)
+        ApplicationInsights ingestion endpoint
   -format string
-        nginx log format
+        nginx log format (required)
   -ikey string
-        ApplicationInsights instrumentation key
+        ApplicationInsights instrumentation key (required)
   -in string
-        Input file, or '-' for stdin
+        Input file, or '-' for stdin (required)
   -jsonescape
         whether the nginx log is JSON-escaped
   -out string
@@ -67,14 +67,15 @@ $remote_addr - $remote_user [$time_local] $scheme $host "$request" $request_time
 
 A full list of nginx variables can be found [here](http://nginx.org/en/docs/varindex.html)
 
-Many of the common variables will be mapped into Application Insights data. 
-If data is included that cannot be mapped into that schema, it will be
-included as a custom property.
+Many of the common variables will be mapped into Application Insights
+telemetry events.  If data is found that cannot be mapped, it will be
+included as custom properties.
 
 * `-in`
-The input file.  This can be a standard file, in which case it will be
-continually read from the end; or it can be a FIFO, in which case it will be
-read continuously.
+The input file.  If a regular file is specified, then new events will be read
+from the end and already-existing events will be ignored.  If it is a FIFO,
+it will read all events sent to it; it will continue to listen if a writer
+closes its end.
 
 * `-out`
 The output file.  `ailognginx` will write all ingested log data to this file
@@ -82,7 +83,7 @@ or FIFO.  This can be thought of being similar to `tee`.
 
 * `-custom`
 Add a custom property to all request telemtry.  This argument can be 
-specified multiple times, and the value is of the form `key=value`.
+specified multiple times.  The value is of the form `key=value`.
 
 * `-role` and `-roleinstance`
 Add properties to the telemetry that specify information about the machine
@@ -103,15 +104,15 @@ Insights as trace events.  The usage is:
   -debug
         Show debugging output
   -endpoint string
-        ApplicationInsights ingestion endpoint (optional)
-  -filter value
-        Include lines that match this regex
-  -filterout value
-        Discard lines that match this regex
+        ApplicationInsights ingestion endpoint
+  -exclude value
+        Exclude lines that match this regex
   -ikey string
-        ApplicationInsights instrumentation key
+        ApplicationInsights instrumentation key (required)
   -in string
-        Input file, or '-' for stdin
+        Input file, or '-' for stdin (required)
+  -include value
+        Include lines that match this regex
   -out string
         Output file, '-' for stdout, 'stderr' for stderr
   -quiet
@@ -121,18 +122,20 @@ Insights as trace events.  The usage is:
   -roleinstance string
         Telemetry role instance. Defaults to the machine hostname
   -severity string
-        Severity level in trace telemetry: Verbose, Information, Warning, Error, Critical (default "information")
+        Severity level in trace telemetry: Verbose, Information, Warning, Error, Critical (default "Information")
 ```
 
-At least `-ikey` and `-in` are required arguments.
+The only required arguments are `-ikey` and `-in`.
 
-By default, `ailogtrace` will send one trace event per line from the input. 
-If `-batch N` is specified, then all messages sent within a window
-of `N` seconds will be sent together as a single trace event.
+By default, `ailogtrace` will send one trace event per line of input.  If
+`-batch N` is specified, then all messages sent within a window of `N`
+seconds will be sent together as a single trace event.
 
-Input can be filtered with either or both `-filter` and `-filterout`
-options.  These specify regular expressions that will either include or skip
-lines that match those regular expressions.
+Input can be filtered with either or both `-include` and `-exclude` options. 
+These specify regular expressions that will either include or skip lines
+that match those regular expressions.  They can each be included multiple
+times.  Note that these expressions are compared against *lines* rather than
+batches.
 
 `-severity` can be used to specify the severity level that appears in the
 telemetry.

@@ -31,23 +31,23 @@ func main() {
     handler := &TraceHandler{}
     
     common.InitFlags()
-    flag.Var(&handler.filter, "filter", "Include lines that match this regex")
-    flag.Var(&handler.filterOut, "filterout", "Discard lines that match this regex")
+    flag.Var(&handler.filterInclude, "include", "Include lines that match this regex")
+    flag.Var(&handler.filterExclude, "exclude", "Exclude lines that match this regex")
     flag.IntVar(&handler.batchTime, "batch", 0, "Batch output for n seconds and send as a single trace")
-    flag.StringVar(&handler.sevstring, "severity", "information", "Severity level in trace telemetry: Verbose, Information, Warning, Error, Critical")
+    flag.StringVar(&handler.sevstring, "severity", "Information", "Severity level in trace telemetry: Verbose, Information, Warning, Error, Critical")
     flag.Parse()
     
     common.Start("ailogtrace", handler)
 }
 
 type TraceHandler struct {
-    msgs	*log.Logger
-    filter	regexpList
-    filterOut	regexpList
-    batchTime	int
-    channel	chan string
-    sevstring	string
-    severity	appinsights.SeverityLevel
+    msgs		*log.Logger
+    filterInclude	regexpList
+    filterExclude	regexpList
+    batchTime		int
+    channel		chan string
+    sevstring		string
+    severity		appinsights.SeverityLevel
 }
 
 func (handler *TraceHandler) Initialize(msgs *log.Logger) error {
@@ -70,7 +70,7 @@ func (handler *TraceHandler) Initialize(msgs *log.Logger) error {
 }
 
 func (handler *TraceHandler) Receive(line string) error {
-    if handler.filter.MatchAny(line, true) && !handler.filterOut.MatchAny(line, false) {
+    if handler.filterInclude.MatchAny(line, true) && !handler.filterExclude.MatchAny(line, false) {
         handler.channel <- line
     } else {
         log.Printf("Line didn't pass regexps: %s", line)
