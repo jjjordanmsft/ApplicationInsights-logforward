@@ -4,6 +4,7 @@ package main
 import (
     "bytes"
     "fmt"
+    "log"
     "net/url"
     "regexp"
     "strconv"
@@ -14,11 +15,13 @@ import (
 )
 
 const (
-    defaultFormat = "$remote_addr - $remote_user [$time_local] \"$request\" $status $body_bytes_sent \"$http_referer\" \"$http_user_agent\" \"$http_x_forwarded_for\""
+    defaultFormat = "$remote_addr - $remote_user [$time_local] \"$request\" $status $body_bytes_sent \"$http_referer\" \"$http_user_agent\""
 )
 
 var (
     varRE = regexp.MustCompile("\\$[a-zA-Z0-9_]+")
+    escRE = regexp.MustCompile(`\\x[0-9a-fA-F]{2}|\\[\\"]|\\u[0-9a-fA-F]{4}`)
+    
     ignoreProperties = map[string]bool{
         "host": true,
         "http_user_agent": true,
@@ -42,54 +45,82 @@ type LogParser struct {
     jsonEscape	bool
 }
 
-func NewLogParser(logFormat string, jsonEscape bool) (*LogParser, error) {
-    regexExpr := makeLogRegexp(logFormat, jsonEscape)
+func NewLogParser(logFormat string) (*LogParser, error) {
+    regexExpr, err := makeLogRegexp(logFormat)
+    if err != nil {
+        return nil, err
+    }
+    
     regex, err := regexp.Compile(regexExpr)
     if err != nil {
         return nil, err
     }
     
-    return &LogParser{fmtRE: regex, jsonEscape: jsonEscape}, nil
+    return &LogParser{fmtRE: regex}, nil
 }
 
-func makeLogRegexp(format string, jsonEscape bool) string {
-    var result bytes.Buffer
+func makeLogRegexp(format string) (string, error) {
+    var segments []string
     
+    // Break down variables/text into segments
     for len(format) > 0 {
         loc := varRE.FindStringIndex(format)
         if loc == nil {
-            // Write out rest of string and finish
-            result.WriteString(regexp.QuoteMeta(format))
+            segments = append(segments, format)
             break
         } else {
-            if (loc[0] > 0) {
-                // Write line through variable
-                result.WriteString(regexp.QuoteMeta(format[0:loc[0]]))
+            if loc[0] > 0 {
+                segments = append(segments, format[0:loc[0]])
             }
             
-            // Grab the variable name
-            varname := format[loc[0]+1:loc[1]]
-            
-            if (loc[1] < len(format)) {
-                // If there are no more variables, then we can be a little more
-                // liberal with the final capture
-                if (strings.IndexByte(format[loc[1]:len(format)], '$') < 0) {
-                    // Don't need to use lookahead character
-                    fmt.Fprintf(&result, "(?P<%s>.*)", varname)
-                } else {
-                    fmt.Fprintf(&result, "(?P<%s>[^%s]*)", varname, regexp.QuoteMeta(format[loc[1]:loc[1]+1]))
-                }
-            } else {
-                // To end-of-line
-                fmt.Fprintf(&result, "(?P<%s>.*)", varname)
-            }
-            
-            // Cut out variable
+            segments = append(segments, format[loc[0]:loc[1]])
             format = format[loc[1]:len(format)]
         }
     }
     
-    return result.String()
+    var expr bytes.Buffer
+    
+    // Convert into regex. This basically escapes runs inbetween variables,
+    // then creates expressions for the variables based on the upcoming lookahead.
+    // If we have "$foo - $bar", then the expression for $foo is: "[^ ]| [^-]| -[^ ]"
+    // or basically, everything up to the separator " - ".  JsonEscaping throws
+    // another minor wrench when it is enabled.
+    for i, segment := range segments {
+        if !varRE.MatchString(segment) {
+            expr.WriteString(regexp.QuoteMeta(segment))
+        } else {
+            fmt.Fprintf(&expr, "(?P<%s>", segment[1:len(segment)])
+            if i >= (len(segments) - 2) {
+                // If there are no more variables, we don't need to use lookaheads
+                fmt.Fprintf(&expr, ".*)")
+            } else if varRE.MatchString(segments[i + 1]) {
+                return "", fmt.Errorf("Format string cannot have two immediately-adjacent variables")
+            } else {
+                // Compute lookahead pattern
+                var lookaheadPattern bytes.Buffer
+                lookahead := segments[i + 1]
+                
+                expr.WriteByte('(')
+                
+                for i, _ := range lookahead {
+                    if lookaheadPattern.Len() > 0 {
+                        expr.WriteByte('|')
+                    }
+                    
+                    expr.Write(lookaheadPattern.Bytes())
+                    fmt.Fprintf(&expr, "[^%s]", regexp.QuoteMeta(lookahead[i:i + 1]))
+                    lookaheadPattern.WriteString(regexp.QuoteMeta(lookahead[i:i + 1]))
+                }
+                
+                // Add patterns for escaping, and close the expression
+                expr.WriteString(`|\\u[0-9]{4}|\\["\\]|\\x[0-9]{2})*)`)
+            }
+        }
+    }
+    
+    log.Printf("Log expression: %s", expr.String())
+    
+    return expr.String(), nil
 }
 
 func (parser *LogParser) parseLogLine(line string) (map[string]string, error) {
@@ -103,10 +134,43 @@ func (parser *LogParser) parseLogLine(line string) (map[string]string, error) {
     result := make(map[string]string)
     
     for i := 1; i < len(subnames); i++ {
-        result[subnames[i]] = matches[i]
+        result[subnames[i]] = unescapeStr(matches[i])
     }
     
     return result, nil
+}
+
+func unescapeStr(value string) string {
+    var result bytes.Buffer
+    
+    for len(value) > 0 {
+        loc := escRE.FindStringIndex(value)
+        
+        if loc == nil {
+            if result.Len() == 0 {
+                return value
+            } else {
+                result.WriteString(value)
+                break
+            }
+        }
+        
+        result.WriteString(value[0:loc[0]])
+        esc := value[loc[0]:loc[1]]
+        value = value[loc[1]:len(value)]
+        
+        if esc[1] == 'u' {
+            r, _ := strconv.ParseInt(esc[2:len(esc)], 16, 32)
+            result.WriteRune(rune(r))
+        } else if esc[1] == 'x' {
+            c, _ := strconv.ParseInt(esc[2:len(esc)], 16, 32)
+            result.WriteByte(byte(c))
+        } else {
+            result.WriteByte(esc[1])
+        }
+    }
+    
+    return result.String()
 }
 
 func (parser *LogParser) CreateTelemetry(line string) (*appinsights.RequestTelemetry, error) {

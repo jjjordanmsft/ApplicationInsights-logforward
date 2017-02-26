@@ -13,7 +13,6 @@ func main() {
 
     common.InitFlags()
     flag.StringVar(&handler.format, "format", "", "nginx log format (required)")
-    flag.BoolVar(&handler.jsonEscape, "jsonescape", false, "whether the nginx log is JSON-escaped")
     flag.Parse()
     
     common.Start("ailognginx", handler)
@@ -21,7 +20,6 @@ func main() {
 
 type NginxHandler struct {
     format	string
-    jsonEscape	bool
     msgs	*log.Logger
     parser	*LogParser
 }
@@ -34,7 +32,7 @@ func (handler *NginxHandler) Initialize(msgs *log.Logger) error {
     }
     
     var err error
-    handler.parser, err = NewLogParser(handler.format, handler.jsonEscape)
+    handler.parser, err = NewLogParser(handler.format)
     return err
 }
 

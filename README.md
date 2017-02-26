@@ -40,8 +40,6 @@ is:
         ApplicationInsights instrumentation key (required)
   -in string
         Input file, or '-' for stdin (required)
-  -jsonescape
-        whether the nginx log is JSON-escaped
   -out string
         Output file, '-' for stdout, 'stderr' for stderr
   -quiet
