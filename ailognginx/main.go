@@ -5,7 +5,7 @@ import (
     "flag"
     "log"
     
-    "github.com/jjjordanmsft/ApplicationInsights-nginx/common"
+    "github.com/jjjordanmsft/ApplicationInsights-logforward/common"
 )
 
 func main() {

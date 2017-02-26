@@ -10,7 +10,7 @@ import (
     "time"
     
     "github.com/jjjordanmsft/ApplicationInsights-Go/appinsights"
-    "github.com/jjjordanmsft/ApplicationInsights-nginx/common"
+    "github.com/jjjordanmsft/ApplicationInsights-logforward/common"
 )
 
 var (
