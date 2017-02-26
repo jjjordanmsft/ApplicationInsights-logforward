@@ -21,7 +21,6 @@ var (
     varRE = regexp.MustCompile("\\$[a-zA-Z0-9_]+")
     ignoreProperties = map[string]bool{
         "host": true,
-        "http_referer": true,
         "http_user_agent": true,
         "http_x_forwarded_for": true,
         "remote_addr": true,
@@ -173,7 +172,7 @@ func (parser *LogParser) CreateTelemetry(line string) (*appinsights.RequestTelem
     // Anything else in the log that isn't covered here should be included
     // as properties. We assume that if it's in the log, you want that data.
     for k, v := range log {
-        if _, ok := ignoreProperties[k]; !ok {
+        if _, ok := ignoreProperties[k]; !ok && v != "-" {
             telem.SetProperty(k, v)
         }
     }
