@@ -94,6 +94,7 @@ func makeLogRegexp(format string, jsonEscape bool) string {
 }
 
 func (parser *LogParser) parseLogLine(line string) (map[string]string, error) {
+    line = strings.TrimRight(line, "\r\n")
     matches := parser.fmtRE.FindStringSubmatch(line)
     if len(matches) < 1 {
         return nil, fmt.Errorf("Line doesn't match format")

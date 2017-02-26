@@ -38,8 +38,8 @@ func InitFlags() {
     flag.StringVar(&flagEndpoint, "endpoint", "", "ApplicationInsights ingestion endpoint (optional)")
     flag.StringVar(&flagRole, "role", "", "Telemetry role name. Defaults to the machine hostname")
     flag.StringVar(&flagRoleInstance, "roleinstance", "", "Telemetry role instance. Defaults to the machine hostname")
-    flag.StringVar(&flagInfile, "infile", "", "Input file, or '-' for stdin")
-    flag.StringVar(&flagOutfile, "outfile", "", "Output file, '-' for stdout, 'stderr' for stderr")
+    flag.StringVar(&flagInfile, "in", "", "Input file, or '-' for stdin")
+    flag.StringVar(&flagOutfile, "out", "", "Output file, '-' for stdout, 'stderr' for stderr")
     flag.BoolVar(&flagDebug, "debug", false, "Show debugging output")
     flag.BoolVar(&flagQuiet, "quiet", false, "Don't write any output messages")
     flag.Var(&flagCustom, "custom", "Include custom property in telemetry like 'key=value'. Can be used multiple times")
@@ -86,6 +86,18 @@ func Start(name string, logHandler LogHandler) {
         msgs.SetOutput(ioutil.Discard)
     }
     
+    var logWriter *LogWriter
+    if flagOutfile != "" {
+        var err error
+        logWriter, err = NewLogWriter(flagOutfile)
+        if err != nil {
+            msgs.Printf("Error initializing log writer: %s\n", err.Error())
+            os.Exit(1)
+        }
+    } else {
+        logWriter = NewNilLogWriter()
+    }
+    
     logReader, err := MakeLogReader(flagInfile)
     if err != nil {
         msgs.Printf("Error initializing log reader: %s\n", err.Error())
@@ -102,7 +114,7 @@ func Start(name string, logHandler LogHandler) {
     signal.Notify(signalc, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
     
     done := make(chan bool)
-    go readLoop(logReader, logHandler, msgs, done)
+    go readLoop(logReader, logWriter, logHandler, msgs, done)
     
     for {
         select {
@@ -121,6 +133,8 @@ func Start(name string, logHandler LogHandler) {
                         case <- time.After(time.Duration(250 * time.Millisecond)): break
                     }
                     
+                    logWriter.Close()
+                    
                     os.Exit(-int(sig.(syscall.Signal)))
                 }
             case <- done:
@@ -129,25 +143,39 @@ func Start(name string, logHandler LogHandler) {
     }
 }
 
-func readLoop(logReader *LogReader, logHandler LogHandler, msgs *log.Logger, done chan bool) {
-    events := logReader.Events()
+func readLoop(logReader *LogReader, logWriter *LogWriter, logHandler LogHandler, msgs *log.Logger, done chan bool) {
+main:
     for {
-        event := <- events
-        if event.data != "" {
-            log.Printf("Log line: %s", event.data)
-            err := logHandler.Receive(event.data)
-            if err != nil {
-                log.Printf("Error was: %s", err.Error())
+        select {
+        case event := <- logReader.events:
+            if event.data != "" {
+                if logWriter != nil {
+                    logWriter.Write(event.data)
+                }
+                
+                err := logHandler.Receive(event.data)
+                if err != nil {
+                    msgs.Printf("Error processing log line: %s", err.Error())
+                }
             }
-        }
-        
-        if event.err != nil {
-            msgs.Println(event.err.Error())
-        }
-        
-        if event.closed {
-            msgs.Println("Input closed.")
-            break
+            
+            if event.err != nil {
+                msgs.Println(event.err.Error())
+            }
+            
+            if event.closed {
+                msgs.Println("Input closed.")
+                break main
+            }
+        case event := <- logWriter.events:
+            if event.err != nil {
+                msgs.Printf("Log output encountered error: %s", event.err.Error())
+            }
+            
+            if event.closed {
+                msgs.Println("Log output closed. Aborting.")
+                break main
+            }
         }
     }
     

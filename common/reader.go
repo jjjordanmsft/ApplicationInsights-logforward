@@ -396,9 +396,9 @@ func (writer *logEventWriter) Write(data []byte) {
             if writer.skip == 0 {
                 if writer.buffer.Len() == 0 {
                     // Skip writing intermediate to buffer
-                    writer.events <- LogEventMessage{data: string(data[0:idx])}
+                    writer.events <- LogEventMessage{data: string(data[0:idx + 1])}
                 } else {
-                    writer.buffer.Write(data[0:idx])
+                    writer.buffer.Write(data[0:idx + 1])
                     writer.events <- LogEventMessage{data: writer.buffer.String()}
                     writer.buffer.Reset()
                 }
