@@ -70,7 +70,9 @@ func (handler *TraceHandler) Initialize(msgs *log.Logger) error {
 }
 
 func (handler *TraceHandler) Receive(line string) error {
-    if handler.filterInclude.MatchAny(line, true) && !handler.filterExclude.MatchAny(line, false) {
+    tst := strings.TrimRight(line, "\r\n")
+    
+    if handler.filterInclude.MatchAny(tst, true) && !handler.filterExclude.MatchAny(tst, false) {
         handler.channel <- line
     } else {
         log.Printf("Line didn't pass regexps: %s", line)
