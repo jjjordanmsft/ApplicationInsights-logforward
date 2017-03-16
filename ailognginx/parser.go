@@ -214,7 +214,13 @@ func (parser *LogParser) CreateTelemetry(line string) (*appinsights.RequestTelem
         return nil, err
     }
     
-    telem := appinsights.NewRequestTelemetry(name, method, url, timestamp, duration, responseCode, success)
+    // nginx's timestamp comes at the time of response, but we want the time of the
+    // request.  If duration is available (non-zero) then this will correctly calculate
+    // the request time.  If it's not available, then oh well, you'll just get the
+    // time the response was sent.
+    requestTime := timestamp.Add(-duration)
+    
+    telem := appinsights.NewRequestTelemetry(name, method, url, requestTime, duration, responseCode, success)
     
     // Optional properties
     context := telem.Context()
