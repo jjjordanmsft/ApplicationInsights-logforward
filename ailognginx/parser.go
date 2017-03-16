@@ -218,7 +218,7 @@ func (parser *LogParser) CreateTelemetry(line string) (*appinsights.RequestTelem
     // request.  If duration is available (non-zero) then this will correctly calculate
     // the request time.  If it's not available, then oh well, you'll just get the
     // time the response was sent.
-    requestTime := timestamp.Add(-duration)
+    requestTime := timestamp.Add(-(time.Second * time.Duration(duration.Seconds())))
     
     telem := appinsights.NewRequestTelemetry(name, method, url, requestTime, duration, responseCode, success)
     
