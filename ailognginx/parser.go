@@ -26,6 +26,7 @@ var (
         "host": true,
         "http_user_agent": true,
         "http_x_forwarded_for": true,
+        "msec": true,
         "remote_addr": true,
         "remote_user": true,
         "request": true,
@@ -214,13 +215,7 @@ func (parser *LogParser) CreateTelemetry(line string) (*appinsights.RequestTelem
         return nil, err
     }
     
-    // nginx's timestamp comes at the time of response, but we want the time of the
-    // request.  If duration is available (non-zero) then this will correctly calculate
-    // the request time.  If it's not available, then oh well, you'll just get the
-    // time the response was sent.
-    requestTime := timestamp.Add(-(time.Second * time.Duration(duration.Seconds())))
-    
-    telem := appinsights.NewRequestTelemetry(name, method, url, requestTime, duration, responseCode, success)
+    telem := appinsights.NewRequestTelemetry(name, method, url, timestamp, duration, responseCode, success)
     
     // Optional properties
     context := telem.Context()
@@ -267,15 +262,39 @@ func parseName(log map[string]string) (string, error) {
 }
 
 func parseTimestamp(log map[string]string) (time.Time, error) {
+    // nginx's timestamp comes at the time of response, but we want the time of the
+    // request.  If duration is available (non-zero) then this will correctly calculate
+    // the request time.  If it's not available, then oh well, you'll just get the
+    // time the response was sent.
+    duration, err := parseDuration(log)
+    if err != nil {
+        duration = 0
+    }
+    
+    if val, ok := log["msec"]; ok {
+        if flt, err := strconv.ParseFloat(val, 64); err == nil {
+            seconds := int64(flt)
+            milliseconds := int64((flt - float64(seconds)) * 1000.0)
+            tm := time.Unix(seconds, milliseconds * 1000000)
+            return tm.Add(-duration), nil
+        }
+    }
+    
     if val, ok := log["time_local"]; ok {
         if tm, err := time.Parse("02/Jan/2006:15:04:05 -0700", val); err == nil {
-            return tm, nil
+            // Adjust based on rounded-down seconds; otherwise, small durations will put
+            // requests in the past.
+            requestTime := tm.Add(-(time.Second * time.Duration(duration.Seconds())))
+            return requestTime, nil
         }
     }
     
     if val, ok := log["time_iso8601"]; ok {
         if tm, err := time.Parse(time.RFC3339, val); err == nil {
-            return tm, nil
+            // Adjust based on rounded-down seconds; otherwise, small durations will put
+            // requests in the past.
+            requestTime := tm.Add(-(time.Second * time.Duration(duration.Seconds())))
+            return requestTime, nil
         }
     }
     
