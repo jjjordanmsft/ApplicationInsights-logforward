@@ -37,7 +37,30 @@ var (
         "status": true,
         "time_iso8601": true,
         "time_local": true,
-        "uri": true}
+        "uri": true,
+    }
+    
+    measurementVariables = map[string]bool{
+        "body_bytes_sent": true,
+        "bytes_sent": true,
+        "connection_requests": true,
+        "content_length": true,
+        "connections_active": true,
+        "connections_reading": true,
+        "connections_writing": true,
+        "connections_waiting": true,
+        "gzip_ratio": true,
+        "request_length": true,
+        
+        // Eventually, these will be incorporated into remote dependencies:
+        "upstream_bytes_received": true,
+        "upstream_bytes_sent": true,
+        "upstream_connect_time": true,
+        "upstream_first_byte_time": true,
+        "upstream_header_time": true,
+        "upstream_response_length": true,
+        "upstream_response_time": true,
+    }
 )
 
 type LogParser struct {
@@ -243,7 +266,18 @@ func (parser *LogParser) CreateTelemetry(line string) (*appinsights.RequestTelem
     // as properties. We assume that if it's in the log, you want that data.
     for k, v := range log {
         if _, ok := ignoreProperties[k]; !ok && v != "-" {
-            telem.SetProperty(k, v)
+            if _, ok := measurementVariables[k]; ok {
+                // Some numbers (time/byte counts) go into measurements
+                if fl, err := strconv.ParseFloat(v, 64); err == nil {
+                    // FIXME: This doesn't work, yet.
+                    telem.Measurements[k] = fl
+                } else {
+                    // Couldn't parse it; just stash it into a property
+                    telem.SetProperty(k, v)
+                }
+            } else {
+                telem.SetProperty(k, v)
+            }
         }
     }
     
