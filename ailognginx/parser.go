@@ -16,11 +16,12 @@ import (
 
 const (
     defaultFormat = "$remote_addr - $remote_user [$time_local] \"$request\" $status $body_bytes_sent \"$http_referer\" \"$http_user_agent\""
+    escExpr = `\\x[0-9a-fA-F]{2}|\\[\\"]|\\u[0-9a-fA-F]{4}`
 )
 
 var (
-    varRE = regexp.MustCompile("\\$[a-zA-Z0-9_]+")
-    escRE = regexp.MustCompile(`\\x[0-9a-fA-F]{2}|\\[\\"]|\\u[0-9a-fA-F]{4}`)
+    varRE = regexp.MustCompile(`\$[a-zA-Z0-9_]+`)
+    escRE = regexp.MustCompile(escExpr)
     
     ignoreProperties = map[string]bool{
         "host": true,
@@ -71,11 +72,11 @@ func makeLogRegexp(format string) (string, error) {
             break
         } else {
             if loc[0] > 0 {
-                segments = append(segments, format[0:loc[0]])
+                segments = append(segments, format[:loc[0]])
             }
             
             segments = append(segments, format[loc[0]:loc[1]])
-            format = format[loc[1]:len(format)]
+            format = format[loc[1]:]
         }
     }
     
@@ -84,37 +85,21 @@ func makeLogRegexp(format string) (string, error) {
     // Convert into regex. This basically escapes runs inbetween variables,
     // then creates expressions for the variables based on the upcoming lookahead.
     // If we have "$foo - $bar", then the expression for $foo is: "[^ ]| [^-]| -[^ ]"
-    // or basically, everything up to the separator " - ".  JsonEscaping throws
-    // another minor wrench when it is enabled.
+    // or basically, everything up to the separator " - ".
     for i, segment := range segments {
         if !varRE.MatchString(segment) {
             expr.WriteString(regexp.QuoteMeta(segment))
         } else {
-            fmt.Fprintf(&expr, "(?P<%s>", segment[1:len(segment)])
+            fmt.Fprintf(&expr, "(?P<%s>", segment[1:])
             if i >= (len(segments) - 2) {
                 // If there are no more variables, we don't need to use lookaheads
                 fmt.Fprintf(&expr, ".*)")
             } else if varRE.MatchString(segments[i + 1]) {
                 return "", fmt.Errorf("Format string cannot have two immediately-adjacent variables")
             } else {
-                // Compute lookahead pattern
-                var lookaheadPattern bytes.Buffer
-                lookahead := segments[i + 1]
-                
                 expr.WriteByte('(')
-                
-                for i, _ := range lookahead {
-                    if lookaheadPattern.Len() > 0 {
-                        expr.WriteByte('|')
-                    }
-                    
-                    expr.Write(lookaheadPattern.Bytes())
-                    fmt.Fprintf(&expr, "[^%s]", regexp.QuoteMeta(lookahead[i:i + 1]))
-                    lookaheadPattern.WriteString(regexp.QuoteMeta(lookahead[i:i + 1]))
-                }
-                
-                // Add patterns for escaping, and close the expression
-                expr.WriteString(`|\\u[0-9]{4}|\\["\\]|\\x[0-9]{2})*)`)
+                writeNegativeLookahead(&expr, segments[i + 1], escExpr)
+                expr.WriteString(")*)")
             }
         }
     }
@@ -122,6 +107,19 @@ func makeLogRegexp(format string) (string, error) {
     log.Printf("Log expression: %s", expr.String())
     
     return expr.String(), nil
+}
+
+// Poor man's negative lookahead: Accept all characters up to but excluding the
+// lookahead string. Lookahead can be interrupted by accepting the esc expression,
+// which we assume starts with '\'.
+func writeNegativeLookahead(buf *bytes.Buffer, lookahead, esc string) {
+    c := regexp.QuoteMeta(lookahead[0:1])
+    fmt.Fprintf(buf, `[^%s\\]|%s`, c, esc)
+    if len(lookahead) > 1 {
+        fmt.Fprintf(buf, "|%s(", c)
+        writeNegativeLookahead(buf, lookahead[1:], esc)
+        buf.WriteByte(')')
+    }
 }
 
 func (parser *LogParser) parseLogLine(line string) (map[string]string, error) {
@@ -158,13 +156,13 @@ func unescapeStr(value string) string {
         
         result.WriteString(value[0:loc[0]])
         esc := value[loc[0]:loc[1]]
-        value = value[loc[1]:len(value)]
+        value = value[loc[1]:]
         
         if esc[1] == 'u' {
-            r, _ := strconv.ParseInt(esc[2:len(esc)], 16, 32)
+            r, _ := strconv.ParseInt(esc[2:], 16, 32)
             result.WriteRune(rune(r))
         } else if esc[1] == 'x' {
-            c, _ := strconv.ParseInt(esc[2:len(esc)], 16, 32)
+            c, _ := strconv.ParseInt(esc[2:], 16, 32)
             result.WriteByte(byte(c))
         } else {
             result.WriteByte(esc[1])
