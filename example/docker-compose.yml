@@ -1,7 +1,9 @@
 version: '2'
 services:
   nginx:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.lax
     ports:
       - 80:80
     environment:
