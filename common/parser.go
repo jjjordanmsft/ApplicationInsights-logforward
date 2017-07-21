@@ -29,6 +29,10 @@ type parserSegment struct {
     searcher *stringSearcher
 }
 
+type ParserResultStorage interface {
+    Store(key, value string)
+}
+
 var NO_MATCH error = errors.New("Match not found")
 
 func NewParser(format string, options *ParserOptions) (*Parser, error) {
@@ -114,13 +118,12 @@ func splitSegments(format string, varRE *regexp.Regexp) []string {
     return segments
 }
 
-func (parser *Parser) Parse(line string) (map[string]string, error) {
+func (parser *Parser) Parse(line string, output ParserResultStorage) error {
     // First, find all of the escape sequences in the input so we can skip over them
     // when processing the line.
     escapes := parser.escapeRE.FindAllStringIndex(line, -1)
     //fmt.Printf("Escapes: %q\n", escapes)
     
-    result := make(map[string]string)
     ptr := 0
     for _, segment := range(parser.segments) {
 /*
@@ -135,7 +138,7 @@ func (parser *Parser) Parse(line string) (map[string]string, error) {
             // Look for a delimiter at the beginning, don't read into a variable
             _, eidx, escidx, err := segment.searcher.Search(line, ptr, escapes)
             if err != nil {
-                return nil, err
+                return err
             }
             
             ptr = eidx
@@ -147,13 +150,13 @@ func (parser *Parser) Parse(line string) (map[string]string, error) {
                 value = parser.unescape(value, ptr, escapes)
             }
             
-            result[segment.variable] = value
+            output.Store(segment.variable, value)
             ptr = len(line)
         } else {
             // Find separator, 
             idx, eidx, escidx, err := segment.searcher.Search(line, ptr, escapes)
             if err != nil {
-                return nil, err
+                return err
             }
             
             // Unescape the value only if we skipped over any escapes
@@ -163,12 +166,28 @@ func (parser *Parser) Parse(line string) (map[string]string, error) {
                 escapes = escapes[escidx:]
             }
             
-            result[segment.variable] = value
+            output.Store(segment.variable, value)
             ptr = eidx
         }
     }
     
-    return result, nil
+    return nil
+}
+
+func (parser *Parser) ParseToMap(line string) (map[string]string, error) {
+    result := make(parserResultMap)
+    err := parser.Parse(line, result)
+    if err != nil {
+        return nil, err
+    } else {
+        return result, nil
+    }
+}
+
+type parserResultMap map[string]string
+
+func (m parserResultMap) Store(key, value string) {
+    m[key] = value
 }
 
 func (parser *Parser) unescape(match string, offset int, escapes [][]int) string {

@@ -56,7 +56,7 @@ func NewLogParser(logFormat string) (*LogParser, error) {
 }
 
 func (parser *LogParser) CreateTelemetry(line string) (*appinsights.RequestTelemetry, error) {
-    log, err := parser.parser.Parse(strings.TrimRight(line, "\r\n"))
+    log, err := parser.parser.ParseToMap(strings.TrimRight(line, "\r\n"))
     if err != nil {
         return nil, err
     }
