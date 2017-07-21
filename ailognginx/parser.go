@@ -41,7 +41,7 @@ type LogParser struct {
 }
 
 func NewLogParser(logFormat string) (*LogParser, error) {
-    parser, err := common.MakeParser(logFormat, &common.ParserOptions{
+    parser, err := common.NewParser(logFormat, &common.ParserOptions{
         VariableRegex: `\$[a-zA-Z0-9_]+`,
         EscapeRegex: `\\x[0-9a-fA-F]{2}|\\[\\"]|\\u[0-9a-fA-F]{4}`,
         Unescape: common.UnescapeCommon,

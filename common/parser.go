@@ -31,7 +31,7 @@ type parserSegment struct {
 
 var NO_MATCH error = errors.New("Match not found")
 
-func MakeParser(format string, options *ParserOptions) (*Parser, error) {
+func NewParser(format string, options *ParserOptions) (*Parser, error) {
     // Compile variable regexp
     varRE, err := regexp.Compile(options.VariableRegex)
     if err != nil {
@@ -225,7 +225,7 @@ func UnescapeCommon(esc string, buf *bytes.Buffer) bool {
             return false
         }
     case 'u', 'U':
-        if i, err := strconv.ParseInt(esc[2:], 32, 32); err != nil {
+        if i, err := strconv.ParseInt(esc[2:], 16, 32); err != nil {
             buf.WriteRune(rune(i))
         } else {
             return false

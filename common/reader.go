@@ -358,7 +358,7 @@ func readFile(infile string, logReader *LogReader) error {
                     // Re-open
                     err := readFile(infile, logReader)
                     if err != nil {
-                        logReader.events <- LogEventMessage{err: fmt.Errorf("Error trying to reopn %s: %s", infile, err.Error()), closed: true}
+                        logReader.events <- LogEventMessage{err: fmt.Errorf("Error trying to reopen %s: %s", infile, err.Error()), closed: true}
                     }
                     
                     return

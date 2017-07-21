@@ -22,10 +22,10 @@ func makeOptions() *ParserOptions {
 }
 
 func TestBoyerMoore(t *testing.T) {
-    parser, _ := MakeParser("${front} - ${first} - ${second}", makeOptions())
+    parser, _ := NewParser("${front} - ${first} - ${second}", makeOptions())
     Show(parser.Parse("1 - 2 -3-  - 3"))
     
-    parser, _ = MakeParser(`"${first}" "${second}" "${third}"`, makeOptions())
+    parser, _ = NewParser(`"${first}" "${second}" "${third}"`, makeOptions())
     Show(parser.Parse(`"this is" "some \" " "\"Text!\""`))
     Show(parser.Parse(`"this is" "some " "Text!"`))
 }
