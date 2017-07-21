@@ -1,6 +1,7 @@
 package common
 
 import (
+    "bytes"
     "errors"
     "fmt"
     "regexp"
@@ -122,7 +123,7 @@ func (parser *Parser) Parse(line string) (map[string]string, error) {
             // Read the rest of the line into a variable
             value := line[ptr:]
             if len(escapes) > 0 {
-                value = parser.callbacks.UnescapeValue(value)
+                value = parser.unescape(value, ptr, escapes)
             }
             
             result[segment.variable] = value
@@ -137,7 +138,7 @@ func (parser *Parser) Parse(line string) (map[string]string, error) {
             // Unescape the value only if we skipped over any escapes
             value := line[ptr:idx]
             if escidx > 0 {
-                value = parser.callbacks.UnescapeValue(value)
+                value = parser.unescape(value, ptr, escapes[0:escidx])
                 escapes = escapes[escidx:]
             }
             
@@ -147,6 +148,31 @@ func (parser *Parser) Parse(line string) (map[string]string, error) {
     }
     
     return result, nil
+}
+
+func (parser *Parser) unescape(match string, offset int, escapes [][]int) string {
+    var buf bytes.Buffer
+    last := 0
+    
+    for _, esc := range escapes {
+        // Get escape relative to offset
+        escStart := esc[0] - offset
+        escEnd := esc[1] - offset
+        
+        // Write last-escape start into buffer
+        buf.WriteString(match[last:escStart])
+        
+        // Unescape into buffer
+        buf.WriteString(parser.callbacks.UnescapeValue(match[escStart:escEnd]))
+        
+        // Advance last pointer
+        last = escEnd
+    }
+    
+    // Write remainder of string
+    buf.WriteString(match[last:])
+    
+    return buf.String()
 }
 
 func splitSegments(format string, varRE *regexp.Regexp) []string {
