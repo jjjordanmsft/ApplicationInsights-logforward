@@ -5,23 +5,23 @@ import (
     "errors"
     "fmt"
     "regexp"
+    "strconv"
 )
 
-type ParserOptions struct {
-    VariableRegex string
-    EscapeRegex   string
-    Callbacks     ParserFunctions
-}
+type unescapeCallback func(string, *bytes.Buffer) bool
+type unwrapCallback func(string) string
 
-type ParserFunctions interface {
-    UnescapeValue(value string) string
-    UnwrapVariable(variableMatch string) string
+type ParserOptions struct {
+    VariableRegex  string
+    EscapeRegex    string
+    Unescape       unescapeCallback
+    UnwrapVariable unwrapCallback
 }
 
 type Parser struct {
-    escapeRE  *regexp.Regexp
-    callbacks ParserFunctions
-    segments  []*parserSegment
+    escapeRE         *regexp.Regexp
+    segments         []*parserSegment
+    unescapeCallback unescapeCallback
 }
 
 type parserSegment struct {
@@ -70,7 +70,7 @@ func MakeParser(format string, options *ParserOptions) (*Parser, error) {
             }
             
             psegments = append(psegments, &parserSegment{
-                variable: options.Callbacks.UnwrapVariable(variable),
+                variable: options.UnwrapVariable(variable),
                 searcher: searcher,
             })
             
@@ -81,16 +81,37 @@ func MakeParser(format string, options *ParserOptions) (*Parser, error) {
     if variable != "" {
         // If we ended with a variable, then add a parser segment for it.
         psegments = append(psegments, &parserSegment{
-            variable: options.Callbacks.UnwrapVariable(variable),
+            variable: options.UnwrapVariable(variable),
             searcher: nil,
         })
     }
     
     return &Parser{
-        escapeRE:  escRE,
-        segments:  psegments,
-        callbacks: options.Callbacks,
+        escapeRE:         escRE,
+        segments:         psegments,
+        unescapeCallback: options.Unescape,
     }, nil
+}
+
+func splitSegments(format string, varRE *regexp.Regexp) []string {
+    var segments []string
+    
+    for len(format) > 0 {
+        loc := varRE.FindStringIndex(format)
+        if loc == nil {
+            segments = append(segments, format)
+            break
+        } else {
+            if loc[0] > 0 {
+                segments = append(segments, format[:loc[0]])
+            }
+            
+            segments = append(segments, format[loc[0]:loc[1]])
+            format = format[loc[1]:]
+        }
+    }
+    
+    return segments
 }
 
 func (parser *Parser) Parse(line string) (map[string]string, error) {
@@ -163,7 +184,7 @@ func (parser *Parser) unescape(match string, offset int, escapes [][]int) string
         buf.WriteString(match[last:escStart])
         
         // Unescape into buffer
-        buf.WriteString(parser.callbacks.UnescapeValue(match[escStart:escEnd]))
+        parser.unescapeCallback(match[escStart:escEnd], &buf)
         
         // Advance last pointer
         last = escEnd
@@ -175,25 +196,45 @@ func (parser *Parser) unescape(match string, offset int, escapes [][]int) string
     return buf.String()
 }
 
-func splitSegments(format string, varRE *regexp.Regexp) []string {
-    var segments []string
-    
-    for len(format) > 0 {
-        loc := varRE.FindStringIndex(format)
-        if loc == nil {
-            segments = append(segments, format)
-            break
-        } else {
-            if loc[0] > 0 {
-                segments = append(segments, format[:loc[0]])
-            }
-            
-            segments = append(segments, format[loc[0]:loc[1]])
-            format = format[loc[1]:]
-        }
+const UnescapeCommonPattern = `\\([nftbrv\"\\]|x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4}|0[0-7]*)`
+
+func UnescapeCommon(esc string, buf *bytes.Buffer) bool {
+    if len(esc) < 2 || esc[0] != '\\' {
+        return false
     }
     
-    return segments
+    switch esc[1] {
+    case '"': buf.WriteByte('"')
+    case '\\':buf.WriteByte('\\')
+    case 'n': buf.WriteByte('\n')
+    case 't': buf.WriteByte('\t')
+    case 'r': buf.WriteByte('\r')
+    case 'f': buf.WriteByte('\f')
+    case 'b': buf.WriteByte('\b')
+    case 'v': buf.WriteByte('\v')
+    case 'x':
+        if i, err := strconv.ParseInt(esc[2:], 16, 8); err != nil {
+            buf.WriteByte(byte(i))
+        } else {
+            return false
+        }
+    case 'u':
+        if i, err := strconv.ParseInt(esc[2:], 16, 32); err != nil {
+            buf.WriteRune(rune(i))
+        } else {
+            return false
+        }
+    case '0':
+        if i, err := strconv.ParseInt(esc[1:], 8, 8); err != nil {
+            buf.WriteByte(byte(i))
+        } else {
+            return false
+        }
+    default:
+        return false
+    }
+    
+    return true
 }
 
 type stringSearcher struct {
