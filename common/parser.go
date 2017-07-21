@@ -73,8 +73,13 @@ func NewParser(format string, options *ParserOptions) (*Parser, error) {
                 searchers[segment] = searcher
             }
             
+            varname := variable
+            if variable != "" {
+                varname = options.UnwrapVariable(variable)
+            }
+            
             psegments = append(psegments, &parserSegment{
-                variable: options.UnwrapVariable(variable),
+                variable: varname,
                 searcher: searcher,
             })
             
