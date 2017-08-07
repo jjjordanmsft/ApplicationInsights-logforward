@@ -50,14 +50,40 @@ func parseTest(t *testing.T, parser *Parser, line string, expected ...string) {
     }
 }
 
+func parseTestError(t *testing.T, parser *Parser, line string) {
+    r := make(testParseResult, 0)
+    err := parser.Parse(line, &r)
+    if err == nil {
+        t.Errorf("Parser.Parse should not have succeeded: %s", line)
+    }
+}
+
 func TestBoyerMoore(t *testing.T) {
     parser := NewTestParser(t, "$0 $1 $2")
+    parseTest(t, parser, "a b ", "a", "b", "")
     parseTest(t, parser, "a b c", "a", "b", "c")
     parseTest(t, parser, "a b c d e", "a", "b", "c d e")
 
     parser = NewTestParser(t, "$0 - $1 - $2")
     parseTest(t, parser, "1 - 2 -3-  - 3", "1", "2 -3- ", "3")
+    parseTest(t, parser, `\n - \t - \r`, "\n", "\t", "\r")
     
     parser = NewTestParser(t, `"$0" "$1" "$2"`)
+    parseTest(t, parser, `"" "" ""`, "", "", "")
+    parseTest(t, parser, `"first" "second" "third"`, "first", "second", "third")
     parseTest(t, parser, `"this is" "some \" " "\"Text!\""`, `this is`, `some " `, `"Text!"`)
+    parseTest(t, parser, `junk "first" "second" "third" junk`, "first", "second", "third")
+    parseTest(t, parser, `"How about" "\"\"\"\" \" \" \" \"  \"  \"  \"" "Some quotes? (\")"`, "How about", `"""" " " " "  "  "  "`, `Some quotes? (")`)
+}
+
+func TestParseErrors(t *testing.T) {
+    parser := NewTestParser(t, `$0 $1 $2`)
+    parseTestError(t, parser, "a")
+    parseTestError(t, parser, "a b")
+    parseTestError(t, parser, "a\t")
+    
+    parser = NewTestParser(t, `"$0" "$1" "$2"`)
+    parseTestError(t, parser, `"1", "2", "3"`)
+    parseTestError(t, parser, `"1" "2" "3`)
+    parseTestError(t, parser, `1" "2" "3"`)
 }
