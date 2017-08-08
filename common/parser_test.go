@@ -5,14 +5,17 @@ import (
     "testing"
 )
 
-func NewTestParser(t *testing.T, format string) *Parser {
-    p, err := NewParser(format, &ParserOptions{
+func NewTestParserRaw(format string) (*Parser, error) {
+    return NewParser(format, &ParserOptions{
         VariableRegex: `\$[0-9]`,
         EscapeRegex: UnescapeCommonPattern,
         Unescape: UnescapeCommon,
         UnwrapVariable: func (v string) string { return v[1:] },
     })
-    
+}
+
+func NewTestParser(t *testing.T, format string) *Parser {
+    p, err := NewTestParserRaw(format)
     if err != nil {
         t.Fatal("Parser constructor failed: %s", err.Error())
     }
@@ -86,4 +89,14 @@ func TestParseErrors(t *testing.T) {
     parseTestError(t, parser, `"1", "2", "3"`)
     parseTestError(t, parser, `"1" "2" "3`)
     parseTestError(t, parser, `1" "2" "3"`)
+}
+
+func TestInitErrors(t *testing.T) {
+    if _, err := NewTestParserRaw("$0$1 $2"); err == nil {
+        t.Fatal("Should not allow two consecutive variables")
+    }
+    
+    if _, err := NewTestParserRaw(" $0 $1$2"); err == nil {
+        t.Fatal("Should not allow two consecutive variables")
+    }
 }
