@@ -239,24 +239,29 @@ func compileSearcher(pattern string) *stringSearcher {
     }
     
     // Good suffix rule - http://www-igm.univ-mlv.fr/~lecroq/string/node14.html
+    
+    // For each position i, pattern[:i+1] has the same suffix as pattern for suffixes[i] bytes,
+    // or: pattern[i-suffixes[i]+1:i+1] == pattern[len(pattern)-suffixes[i]:]
     suffixes := make([]int, length)
     
-    good := last
+    g := last
     f := last - 1
     suffixes[last] = length
     
     for i := last - 1; i >= 0; i-- {
-        if i > good && suffixes[i + last - f] < i - good {
+        if i > g && suffixes[i + last - f] < i - g {
             suffixes[i] = suffixes[i + last - f]
         } else {
-            if i < good {
-                good = i
+            if i < g {
+                g = i
             }
             f = i
-            for good >= 0 && pattern[good] == pattern[good + last - f] { good-- }
-            suffixes[i] = f - good
+            for g >= 0 && pattern[g] == pattern[g + last - f] { g-- }
+            suffixes[i] = f - g
         }
     }
+    
+    // Build jump table based on matching suffixes, above.
     
     result.goodSuffixes = make([]int, length)
     for i := 0; i < length; i++ {
