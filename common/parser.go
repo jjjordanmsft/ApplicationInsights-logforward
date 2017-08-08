@@ -126,18 +126,9 @@ func (parser *Parser) Parse(line string, output ParserResultStorage) error {
     // First, find all of the escape sequences in the input so we can skip over them
     // when processing the line.
     escapes := parser.escapeRE.FindAllStringIndex(line, -1)
-    //fmt.Printf("Escapes: %q\n", escapes)
     
     ptr := 0
     for _, segment := range(parser.segments) {
-/*
-        pat := ""
-        if segment.searcher != nil {
-            pat = segment.searcher.pattern
-        }
-        
-        fmt.Printf("Processing segment, var=%s, sep=%s\n", segment.variable, pat)
-*/
         if segment.variable == "" {
             // Look for a delimiter at the beginning, don't read into a variable
             _, eidx, escidx, err := segment.searcher.Search(line, ptr, escapes)
@@ -291,7 +282,6 @@ func (search *stringSearcher) Search(line string, start int, escapes [][]int) (i
     
     for i := start; i <= len(line) - len(search.pattern); {
         j := len(search.pattern) - 1
-        //debugStep(line, i, j)
         
         // Skip over escapes we've already passed
         for escidx < len(escapes) && escapes[escidx][1] <= i { escidx++ }
@@ -299,7 +289,6 @@ func (search *stringSearcher) Search(line string, start int, escapes [][]int) (i
         // Skip i over the next escape if we're in the middle of it
         if escidx < len(escapes) && escapes[escidx][0] <= (j + i) {
             i = escapes[escidx][1]
-            //debugOut("Skipping over escape")
             continue
         }
         
@@ -307,15 +296,12 @@ func (search *stringSearcher) Search(line string, start int, escapes [][]int) (i
         for j >= 0 && search.pattern[j] == line[i + j] { j-- }
         if j < 0 {
             // Matched
-            //debugOut("Found!")
             return i, i + len(search.pattern), escidx, nil
         }
         
         // No match
         bc := search.badChars[line[i + j]] - len(search.pattern) + 1 + j
         gs := search.goodSuffixes[j]
-        
-        //debugOut("bc=%d, gs=%d", bc, gs)
         
         if bc > gs {
             i += bc
@@ -325,21 +311,4 @@ func (search *stringSearcher) Search(line string, start int, escapes [][]int) (i
     }
     
     return 0, 0, 0, NO_MATCH
-}
-
-func debugStep(line string, i, j int) {
-    fmt.Printf("\t%s\n\t", line)
-    for t := 0; t < i; t++ {
-        fmt.Printf(" ")
-    }
-    
-    for t := 0; t <= j; t++ {
-        fmt.Printf("^")
-    }
-    
-    fmt.Println("")
-}
-
-func debugOut(format string, args... interface{}) {
-    fmt.Printf(format + "\n", args...)
 }
