@@ -2,16 +2,14 @@
 package main
 
 import (
-    "bytes"
     "fmt"
-    "log"
     "net/url"
-    "regexp"
     "strconv"
     "strings"
     "time"
     
     "github.com/jjjordanmsft/ApplicationInsights-Go/appinsights"
+    "github.com/jjjordanmsft/ApplicationInsights-logforward/common"
 )
 
 const (
@@ -19,13 +17,11 @@ const (
 )
 
 var (
-    varRE = regexp.MustCompile("\\$[a-zA-Z0-9_]+")
-    escRE = regexp.MustCompile(`\\x[0-9a-fA-F]{2}|\\[\\"]|\\u[0-9a-fA-F]{4}`)
-    
     ignoreProperties = map[string]bool{
         "host": true,
         "http_user_agent": true,
         "http_x_forwarded_for": true,
+        "msec": true,
         "remote_addr": true,
         "remote_user": true,
         "request": true,
@@ -64,140 +60,26 @@ var (
 )
 
 type LogParser struct {
-    fmtRE	*regexp.Regexp
-    jsonEscape	bool
+    parser *common.Parser
 }
 
 func NewLogParser(logFormat string) (*LogParser, error) {
-    regexExpr, err := makeLogRegexp(logFormat)
+    parser, err := common.NewParser(logFormat, &common.ParserOptions{
+        VariableRegex: `\$[a-zA-Z0-9_]+`,
+        EscapeRegex: `\\x[0-9a-fA-F]{2}|\\[\\"]|\\u[0-9a-fA-F]{4}`,
+        Unescape: common.UnescapeCommon,
+        UnwrapVariable: func(v string) string { return v[1:] },
+    })
+    
     if err != nil {
         return nil, err
     }
     
-    regex, err := regexp.Compile(regexExpr)
-    if err != nil {
-        return nil, err
-    }
-    
-    return &LogParser{fmtRE: regex}, nil
-}
-
-func makeLogRegexp(format string) (string, error) {
-    var segments []string
-    
-    // Break down variables/text into segments
-    for len(format) > 0 {
-        loc := varRE.FindStringIndex(format)
-        if loc == nil {
-            segments = append(segments, format)
-            break
-        } else {
-            if loc[0] > 0 {
-                segments = append(segments, format[0:loc[0]])
-            }
-            
-            segments = append(segments, format[loc[0]:loc[1]])
-            format = format[loc[1]:len(format)]
-        }
-    }
-    
-    var expr bytes.Buffer
-    
-    // Convert into regex. This basically escapes runs inbetween variables,
-    // then creates expressions for the variables based on the upcoming lookahead.
-    // If we have "$foo - $bar", then the expression for $foo is: "[^ ]| [^-]| -[^ ]"
-    // or basically, everything up to the separator " - ".  JsonEscaping throws
-    // another minor wrench when it is enabled.
-    for i, segment := range segments {
-        if !varRE.MatchString(segment) {
-            expr.WriteString(regexp.QuoteMeta(segment))
-        } else {
-            fmt.Fprintf(&expr, "(?P<%s>", segment[1:len(segment)])
-            if i >= (len(segments) - 2) {
-                // If there are no more variables, we don't need to use lookaheads
-                fmt.Fprintf(&expr, ".*)")
-            } else if varRE.MatchString(segments[i + 1]) {
-                return "", fmt.Errorf("Format string cannot have two immediately-adjacent variables")
-            } else {
-                // Compute lookahead pattern
-                var lookaheadPattern bytes.Buffer
-                lookahead := segments[i + 1]
-                
-                expr.WriteByte('(')
-                
-                for i, _ := range lookahead {
-                    if lookaheadPattern.Len() > 0 {
-                        expr.WriteByte('|')
-                    }
-                    
-                    expr.Write(lookaheadPattern.Bytes())
-                    fmt.Fprintf(&expr, "[^%s]", regexp.QuoteMeta(lookahead[i:i + 1]))
-                    lookaheadPattern.WriteString(regexp.QuoteMeta(lookahead[i:i + 1]))
-                }
-                
-                // Add patterns for escaping, and close the expression
-                expr.WriteString(`|\\u[0-9]{4}|\\["\\]|\\x[0-9]{2})*)`)
-            }
-        }
-    }
-    
-    log.Printf("Log expression: %s", expr.String())
-    
-    return expr.String(), nil
-}
-
-func (parser *LogParser) parseLogLine(line string) (map[string]string, error) {
-    line = strings.TrimRight(line, "\r\n")
-    matches := parser.fmtRE.FindStringSubmatch(line)
-    if len(matches) < 1 {
-        return nil, fmt.Errorf("Line doesn't match format")
-    }
-    
-    subnames := parser.fmtRE.SubexpNames()
-    result := make(map[string]string)
-    
-    for i := 1; i < len(subnames); i++ {
-        result[subnames[i]] = unescapeStr(matches[i])
-    }
-    
-    return result, nil
-}
-
-func unescapeStr(value string) string {
-    var result bytes.Buffer
-    
-    for len(value) > 0 {
-        loc := escRE.FindStringIndex(value)
-        
-        if loc == nil {
-            if result.Len() == 0 {
-                return value
-            } else {
-                result.WriteString(value)
-                break
-            }
-        }
-        
-        result.WriteString(value[0:loc[0]])
-        esc := value[loc[0]:loc[1]]
-        value = value[loc[1]:len(value)]
-        
-        if esc[1] == 'u' {
-            r, _ := strconv.ParseInt(esc[2:len(esc)], 16, 32)
-            result.WriteRune(rune(r))
-        } else if esc[1] == 'x' {
-            c, _ := strconv.ParseInt(esc[2:len(esc)], 16, 32)
-            result.WriteByte(byte(c))
-        } else {
-            result.WriteByte(esc[1])
-        }
-    }
-    
-    return result.String()
+    return &LogParser{parser: parser}, nil
 }
 
 func (parser *LogParser) CreateTelemetry(line string) (*appinsights.RequestTelemetry, error) {
-    log, err := parser.parseLogLine(line)
+    log, err := parser.parser.ParseToMap(strings.TrimRight(line, "\r\n"))
     if err != nil {
         return nil, err
     }
@@ -237,13 +119,7 @@ func (parser *LogParser) CreateTelemetry(line string) (*appinsights.RequestTelem
         return nil, err
     }
     
-    // nginx's timestamp comes at the time of response, but we want the time of the
-    // request.  If duration is available (non-zero) then this will correctly calculate
-    // the request time.  If it's not available, then oh well, you'll just get the
-    // time the response was sent.
-    requestTime := timestamp.Add(-(time.Second * time.Duration(duration.Seconds())))
-    
-    telem := appinsights.NewRequestTelemetry(name, method, url, requestTime, duration, responseCode, success)
+    telem := appinsights.NewRequestTelemetry(name, method, url, timestamp, duration, responseCode, success)
     
     // Optional properties
     context := telem.Context()
@@ -301,15 +177,39 @@ func parseName(log map[string]string) (string, error) {
 }
 
 func parseTimestamp(log map[string]string) (time.Time, error) {
+    // nginx's timestamp comes at the time of response, but we want the time of the
+    // request.  If duration is available (non-zero) then this will correctly calculate
+    // the request time.  If it's not available, then oh well, you'll just get the
+    // time the response was sent.
+    duration, err := parseDuration(log)
+    if err != nil {
+        duration = 0
+    }
+    
+    if val, ok := log["msec"]; ok {
+        if flt, err := strconv.ParseFloat(val, 64); err == nil {
+            seconds := int64(flt)
+            milliseconds := int64((flt - float64(seconds)) * 1000.0)
+            tm := time.Unix(seconds, milliseconds * 1000000)
+            return tm.Add(-duration), nil
+        }
+    }
+    
     if val, ok := log["time_local"]; ok {
         if tm, err := time.Parse("02/Jan/2006:15:04:05 -0700", val); err == nil {
-            return tm, nil
+            // Adjust based on rounded-down seconds; otherwise, small durations will put
+            // requests in the past.
+            requestTime := tm.Add(-(time.Second * time.Duration(duration.Seconds())))
+            return requestTime, nil
         }
     }
     
     if val, ok := log["time_iso8601"]; ok {
         if tm, err := time.Parse(time.RFC3339, val); err == nil {
-            return tm, nil
+            // Adjust based on rounded-down seconds; otherwise, small durations will put
+            // requests in the past.
+            requestTime := tm.Add(-(time.Second * time.Duration(duration.Seconds())))
+            return requestTime, nil
         }
     }
     

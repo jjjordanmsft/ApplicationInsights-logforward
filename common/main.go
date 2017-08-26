@@ -85,7 +85,11 @@ func Start(name string, logHandler LogHandler) {
     if flagQuiet {
         msgs.SetOutput(ioutil.Discard)
     }
-    
+
+    cloud := tclient.Context().Cloud()
+    cloud.SetRoleName(flagRole)
+    cloud.SetRoleInstance(flagRoleInstance)
+
     var logWriter *LogWriter
     if flagOutfile != "" {
         var err error
@@ -184,9 +188,6 @@ main:
 
 func Track(t appinsights.Telemetry) {
     if t != nil {
-        cloud := t.Context().Cloud()
-        cloud.SetRoleName(flagRole)
-        cloud.SetRoleInstance(flagRoleInstance)
         if flagCustom != nil {
             for k, v := range flagCustom {
                 t.SetProperty(k, v)
