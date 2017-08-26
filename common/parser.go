@@ -5,7 +5,6 @@ import (
     "errors"
     "fmt"
     "regexp"
-    "strconv"
 )
 
 type unescapeCallback func(string, *bytes.Buffer) bool
@@ -127,18 +126,9 @@ func (parser *Parser) Parse(line string, output ParserResultStorage) error {
     // First, find all of the escape sequences in the input so we can skip over them
     // when processing the line.
     escapes := parser.escapeRE.FindAllStringIndex(line, -1)
-    //fmt.Printf("Escapes: %q\n", escapes)
     
     ptr := 0
     for _, segment := range(parser.segments) {
-/*
-        pat := ""
-        if segment.searcher != nil {
-            pat = segment.searcher.pattern
-        }
-        
-        fmt.Printf("Processing segment, var=%s, sep=%s\n", segment.variable, pat)
-*/
         if segment.variable == "" {
             // Look for a delimiter at the beginning, don't read into a variable
             _, eidx, escidx, err := segment.searcher.Search(line, ptr, escapes)
@@ -220,47 +210,6 @@ func (parser *Parser) unescape(match string, offset int, escapes [][]int) string
     return buf.String()
 }
 
-const UnescapeCommonPattern = `\\([nftbrv\"\\]|[0-7]{1,3}|x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8})`
-
-func UnescapeCommon(esc string, buf *bytes.Buffer) bool {
-    if len(esc) < 2 || esc[0] != '\\' {
-        return false
-    }
-    
-    switch esc[1] {
-    case '"': buf.WriteByte('"')
-    case '\\':buf.WriteByte('\\')
-    case 'n': buf.WriteByte('\n')
-    case 't': buf.WriteByte('\t')
-    case 'r': buf.WriteByte('\r')
-    case 'f': buf.WriteByte('\f')
-    case 'b': buf.WriteByte('\b')
-    case 'v': buf.WriteByte('\v')
-    case '0', '1', '2', '3', '4', '5', '6', '7':
-        if i, err := strconv.ParseInt(esc[1:], 8, 8); err != nil {
-            buf.WriteByte(byte(i))
-        } else {
-            return false
-        }
-    case 'x':
-        if i, err := strconv.ParseInt(esc[2:], 16, 8); err != nil {
-            buf.WriteByte(byte(i))
-        } else {
-            return false
-        }
-    case 'u', 'U':
-        if i, err := strconv.ParseInt(esc[2:], 16, 32); err != nil {
-            buf.WriteRune(rune(i))
-        } else {
-            return false
-        }
-    default:
-        return false
-    }
-    
-    return true
-}
-
 type stringSearcher struct {
     pattern      string
     badChars     [256]int
@@ -281,24 +230,29 @@ func compileSearcher(pattern string) *stringSearcher {
     }
     
     // Good suffix rule - http://www-igm.univ-mlv.fr/~lecroq/string/node14.html
+    
+    // For each position i, pattern[:i+1] has the same suffix as pattern for suffixes[i] bytes,
+    // or: pattern[i-suffixes[i]+1:i+1] == pattern[len(pattern)-suffixes[i]:]
     suffixes := make([]int, length)
     
-    good := last
+    g := last
     f := last - 1
     suffixes[last] = length
     
     for i := last - 1; i >= 0; i-- {
-        if i > good && suffixes[i + last - f] < i - good {
+        if i > g && suffixes[i + last - f] < i - g {
             suffixes[i] = suffixes[i + last - f]
         } else {
-            if i < good {
-                good = i
+            if i < g {
+                g = i
             }
             f = i
-            for good >= 0 && pattern[good] == pattern[good + last - f] { good-- }
-            suffixes[i] = f - good
+            for g >= 0 && pattern[g] == pattern[g + last - f] { g-- }
+            suffixes[i] = f - g
         }
     }
+    
+    // Build jump table based on matching suffixes, above.
     
     result.goodSuffixes = make([]int, length)
     for i := 0; i < length; i++ {
@@ -328,7 +282,6 @@ func (search *stringSearcher) Search(line string, start int, escapes [][]int) (i
     
     for i := start; i <= len(line) - len(search.pattern); {
         j := len(search.pattern) - 1
-        //debugStep(line, i, j)
         
         // Skip over escapes we've already passed
         for escidx < len(escapes) && escapes[escidx][1] <= i { escidx++ }
@@ -336,7 +289,6 @@ func (search *stringSearcher) Search(line string, start int, escapes [][]int) (i
         // Skip i over the next escape if we're in the middle of it
         if escidx < len(escapes) && escapes[escidx][0] <= (j + i) {
             i = escapes[escidx][1]
-            //debugOut("Skipping over escape")
             continue
         }
         
@@ -344,15 +296,12 @@ func (search *stringSearcher) Search(line string, start int, escapes [][]int) (i
         for j >= 0 && search.pattern[j] == line[i + j] { j-- }
         if j < 0 {
             // Matched
-            //debugOut("Found!")
             return i, i + len(search.pattern), escidx, nil
         }
         
         // No match
         bc := search.badChars[line[i + j]] - len(search.pattern) + 1 + j
         gs := search.goodSuffixes[j]
-        
-        //debugOut("bc=%d, gs=%d", bc, gs)
         
         if bc > gs {
             i += bc
@@ -362,21 +311,4 @@ func (search *stringSearcher) Search(line string, start int, escapes [][]int) (i
     }
     
     return 0, 0, 0, NO_MATCH
-}
-
-func debugStep(line string, i, j int) {
-    fmt.Printf("\t%s\n\t", line)
-    for t := 0; t < i; t++ {
-        fmt.Printf(" ")
-    }
-    
-    for t := 0; t <= j; t++ {
-        fmt.Printf("^")
-    }
-    
-    fmt.Println("")
-}
-
-func debugOut(format string, args... interface{}) {
-    fmt.Printf(format + "\n", args...)
 }
