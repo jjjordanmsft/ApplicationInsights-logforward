@@ -123,13 +123,15 @@ func (parser *LogParser) CreateTelemetry(line string) (*appinsights.RequestTelem
     
     // Optional properties
     context := telem.Context()
-    
+
+/* TODO    
     if useragent, ok := log["http_user_agent"]; ok {
         context.User().SetUserAgent(useragent)
     }
-    
+*/
+
     if userid, err := parseUserId(log); err == nil {
-        context.User().SetAuthenticatedUserId(userid)
+        context.User().SetAuthUserId(userid)
     }
     
     if clientip, err := parseClientIp(log); err == nil {
@@ -145,14 +147,13 @@ func (parser *LogParser) CreateTelemetry(line string) (*appinsights.RequestTelem
             if _, ok := measurementVariables[k]; ok {
                 // Some numbers (time/byte counts) go into measurements
                 if fl, err := strconv.ParseFloat(v, 64); err == nil {
-                    // FIXME: This doesn't work, yet.
-                    telem.Measurements[k] = fl
+                    telem.Data.Measurements[k] = fl
                 } else {
                     // Couldn't parse it; just stash it into a property
-                    telem.SetProperty(k, v)
+                    telem.Data.Properties[k] = v
                 }
             } else {
-                telem.SetProperty(k, v)
+                telem.Data.Properties[k] = v
             }
         }
     }

@@ -87,7 +87,7 @@ func Start(name string, logHandler LogHandler) {
     }
 
     cloud := tclient.Context().Cloud()
-    cloud.SetRoleName(flagRole)
+    cloud.SetRole(flagRole)
     cloud.SetRoleInstance(flagRoleInstance)
 
     var logWriter *LogWriter
@@ -189,8 +189,21 @@ main:
 func Track(t appinsights.Telemetry) {
     if t != nil {
         if flagCustom != nil {
+            // HACK
+            var properties map[string]string
+            
+            if trace, ok := t.(*appinsights.TraceTelemetry); ok {
+                properties = trace.Data.Properties
+            } else if event, ok := t.(*appinsights.EventTelemetry); ok {
+                properties = event.Data.Properties
+            } else if metric, ok := t.(*appinsights.MetricTelemetry); ok {
+                properties = metric.Data.Properties
+            } else if request, ok := t.(*appinsights.RequestTelemetry); ok {
+                properties = request.Data.Properties
+            }
+            
             for k, v := range flagCustom {
-                t.SetProperty(k, v)
+                properties[k] = v
             }
         }
         
