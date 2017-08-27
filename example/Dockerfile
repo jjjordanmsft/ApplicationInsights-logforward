@@ -1,5 +1,11 @@
 FROM nginx:latest
 
+# Install root certificates
+RUN apt-get -y -qq update \
+ && apt-get -y -qq install --no-install-recommends ca-certificates \
+ && apt-get -y -qq clean \
+ && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
 ENTRYPOINT ["/bin/bash", "/start.sh"]
 
 ENV AILOG_VERSION 0.1.0

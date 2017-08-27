@@ -2,27 +2,21 @@
 package main
 
 import (
-    "bytes"
     "fmt"
-    "log"
     "net/url"
-    "regexp"
     "strconv"
     "strings"
     "time"
     
     "github.com/jjjordanmsft/ApplicationInsights-Go/appinsights"
+    "github.com/jjjordanmsft/ApplicationInsights-logforward/common"
 )
 
 const (
     defaultFormat = "$remote_addr - $remote_user [$time_local] \"$request\" $status $body_bytes_sent \"$http_referer\" \"$http_user_agent\""
-    escExpr = `\\x[0-9a-fA-F]{2}|\\[\\"]|\\u[0-9a-fA-F]{4}`
 )
 
 var (
-    varRE = regexp.MustCompile(`\$[a-zA-Z0-9_]+`)
-    escRE = regexp.MustCompile(escExpr)
-    
     ignoreProperties = map[string]bool{
         "host": true,
         "http_user_agent": true,
@@ -43,137 +37,26 @@ var (
 )
 
 type LogParser struct {
-    fmtRE	*regexp.Regexp
-    jsonEscape	bool
+    parser *common.Parser
 }
 
 func NewLogParser(logFormat string) (*LogParser, error) {
-    regexExpr, err := makeLogRegexp(logFormat)
+    parser, err := common.NewParser(logFormat, &common.ParserOptions{
+        VariableRegex: `\$[a-zA-Z0-9_]+`,
+        EscapeRegex: `\\x[0-9a-fA-F]{2}|\\[\\"]|\\u[0-9a-fA-F]{4}`,
+        Unescape: common.UnescapeCommon,
+        UnwrapVariable: func(v string) string { return v[1:] },
+    })
+    
     if err != nil {
         return nil, err
     }
     
-    regex, err := regexp.Compile(regexExpr)
-    if err != nil {
-        return nil, err
-    }
-    
-    return &LogParser{fmtRE: regex}, nil
-}
-
-func makeLogRegexp(format string) (string, error) {
-    var segments []string
-    
-    // Break down variables/text into segments
-    for len(format) > 0 {
-        loc := varRE.FindStringIndex(format)
-        if loc == nil {
-            segments = append(segments, format)
-            break
-        } else {
-            if loc[0] > 0 {
-                segments = append(segments, format[:loc[0]])
-            }
-            
-            segments = append(segments, format[loc[0]:loc[1]])
-            format = format[loc[1]:]
-        }
-    }
-    
-    var expr bytes.Buffer
-    
-    // Convert into regex. This basically escapes runs inbetween variables,
-    // then creates expressions for the variables based on the upcoming lookahead.
-    // If we have "$foo - $bar", then the expression for $foo is: "[^ ]| [^-]| -[^ ]"
-    // or basically, everything up to the separator " - ".
-    for i, segment := range segments {
-        if !varRE.MatchString(segment) {
-            expr.WriteString(regexp.QuoteMeta(segment))
-        } else {
-            fmt.Fprintf(&expr, "(?P<%s>", segment[1:])
-            if i >= (len(segments) - 2) {
-                // If there are no more variables, we don't need to use lookaheads
-                fmt.Fprintf(&expr, ".*)")
-            } else if varRE.MatchString(segments[i + 1]) {
-                return "", fmt.Errorf("Format string cannot have two immediately-adjacent variables")
-            } else {
-                expr.WriteByte('(')
-                writeNegativeLookahead(&expr, segments[i + 1], escExpr)
-                expr.WriteString(")*)")
-            }
-        }
-    }
-    
-    log.Printf("Log expression: %s", expr.String())
-    
-    return expr.String(), nil
-}
-
-// Poor man's negative lookahead: Accept all characters up to but excluding the
-// lookahead string. Lookahead can be interrupted by accepting the esc expression,
-// which we assume starts with '\'.
-func writeNegativeLookahead(buf *bytes.Buffer, lookahead, esc string) {
-    c := regexp.QuoteMeta(lookahead[0:1])
-    fmt.Fprintf(buf, `[^%s\\]|%s`, c, esc)
-    if len(lookahead) > 1 {
-        fmt.Fprintf(buf, "|%s(", c)
-        writeNegativeLookahead(buf, lookahead[1:], esc)
-        buf.WriteByte(')')
-    }
-}
-
-func (parser *LogParser) parseLogLine(line string) (map[string]string, error) {
-    line = strings.TrimRight(line, "\r\n")
-    matches := parser.fmtRE.FindStringSubmatch(line)
-    if len(matches) < 1 {
-        return nil, fmt.Errorf("Line doesn't match format")
-    }
-    
-    subnames := parser.fmtRE.SubexpNames()
-    result := make(map[string]string)
-    
-    for i := 1; i < len(subnames); i++ {
-        result[subnames[i]] = unescapeStr(matches[i])
-    }
-    
-    return result, nil
-}
-
-func unescapeStr(value string) string {
-    var result bytes.Buffer
-    
-    for len(value) > 0 {
-        loc := escRE.FindStringIndex(value)
-        
-        if loc == nil {
-            if result.Len() == 0 {
-                return value
-            } else {
-                result.WriteString(value)
-                break
-            }
-        }
-        
-        result.WriteString(value[0:loc[0]])
-        esc := value[loc[0]:loc[1]]
-        value = value[loc[1]:]
-        
-        if esc[1] == 'u' {
-            r, _ := strconv.ParseInt(esc[2:], 16, 32)
-            result.WriteRune(rune(r))
-        } else if esc[1] == 'x' {
-            c, _ := strconv.ParseInt(esc[2:], 16, 32)
-            result.WriteByte(byte(c))
-        } else {
-            result.WriteByte(esc[1])
-        }
-    }
-    
-    return result.String()
+    return &LogParser{parser: parser}, nil
 }
 
 func (parser *LogParser) CreateTelemetry(line string) (*appinsights.RequestTelemetry, error) {
-    log, err := parser.parseLogLine(line)
+    log, err := parser.parser.ParseToMap(strings.TrimRight(line, "\r\n"))
     if err != nil {
         return nil, err
     }
