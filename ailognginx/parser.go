@@ -124,11 +124,9 @@ func (parser *LogParser) CreateTelemetry(line string) (*appinsights.RequestTelem
     // Optional properties
     context := telem.Context()
 
-/* TODO    
     if useragent, ok := log["http_user_agent"]; ok {
-        context.User().SetUserAgent(useragent)
+        context.Tags["ai.user.userAgent"] = useragent
     }
-*/
 
     if userid, err := parseUserId(log); err == nil {
         context.User().SetAuthUserId(userid)
