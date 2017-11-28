@@ -119,12 +119,15 @@ func (parser *LogParser) CreateTelemetry(line string) (*appinsights.RequestTelem
         return nil, err
     }
     
-    telem := appinsights.NewRequestTelemetry(name, method, url, timestamp, duration, responseCode, success)
+    telem := appinsights.NewRequestTelemetry(method, url, duration, responseCode)
+    telem.Timestamp = timestamp
+    telem.Success = success
     
     // Optional properties
-    context := telem.Context()
-
+    context := telem.Context
+    
     if useragent, ok := log["http_user_agent"]; ok {
+        // Will not be supported much longer...
         context.Tags["ai.user.userAgent"] = useragent
     }
 
@@ -145,13 +148,13 @@ func (parser *LogParser) CreateTelemetry(line string) (*appinsights.RequestTelem
             if _, ok := measurementVariables[k]; ok {
                 // Some numbers (time/byte counts) go into measurements
                 if fl, err := strconv.ParseFloat(v, 64); err == nil {
-                    telem.Data.Measurements[k] = fl
+                    telem.Measurements[k] = fl
                 } else {
                     // Couldn't parse it; just stash it into a property
-                    telem.Data.Properties[k] = v
+                    telem.Properties[k] = v
                 }
             } else {
-                telem.Data.Properties[k] = v
+                telem.Properties[k] = v
             }
         }
     }
@@ -240,7 +243,7 @@ func parseResponseCode(log map[string]string) (string, error) {
 func parseSuccess(log map[string]string) (bool, error) {
     if code, err := parseResponseCode(log); err == nil {
         if n, err := strconv.Atoi(code); err == nil {
-            return n < 400, nil
+            return n < 400 || n == 401, nil
         } else {
             return false, fmt.Errorf("Error parsing response code: %s", err.Error())
         }

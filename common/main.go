@@ -81,6 +81,11 @@ func Start(name string, logHandler LogHandler) {
     
     tclient = appinsights.NewTelemetryClientFromConfig(tconfig)
     
+    // Propagate custom flags to common properties
+    for k, v := range flagCustom {
+        tclient.Context().CommonProperties[k] = v
+    }
+    
     msgs := log.New(os.Stderr, fmt.Sprintf("%s: ", name), log.Ldate | log.Ltime)
     if flagQuiet {
         msgs.SetOutput(ioutil.Discard)
@@ -188,25 +193,6 @@ main:
 
 func Track(t appinsights.Telemetry) {
     if t != nil {
-        if flagCustom != nil {
-            // HACK
-            var properties map[string]string
-            
-            if trace, ok := t.(*appinsights.TraceTelemetry); ok {
-                properties = trace.Data.Properties
-            } else if event, ok := t.(*appinsights.EventTelemetry); ok {
-                properties = event.Data.Properties
-            } else if metric, ok := t.(*appinsights.MetricTelemetry); ok {
-                properties = metric.Data.Properties
-            } else if request, ok := t.(*appinsights.RequestTelemetry); ok {
-                properties = request.Data.Properties
-            }
-            
-            for k, v := range flagCustom {
-                properties[k] = v
-            }
-        }
-        
         tclient.Track(t)
     }
 }
