@@ -103,11 +103,6 @@ func (parser *LogParser) CreateTelemetry(line string) (*appinsights.RequestTelem
 		return nil, fmt.Errorf("Error parsing response code: %s", err.Error())
 	}
 
-	success, err := parseSuccess(log)
-	if err != nil {
-		return nil, err
-	}
-
 	method, err := parseMethod(log)
 	if err != nil {
 		return nil, err
@@ -120,7 +115,6 @@ func (parser *LogParser) CreateTelemetry(line string) (*appinsights.RequestTelem
 
 	telem := appinsights.NewRequestTelemetry(method, url, duration, responseCode)
 	telem.Timestamp = timestamp
-	telem.Success = success
 
 	// Optional properties
 	context := telem.Context
@@ -237,19 +231,6 @@ func parseResponseCode(log map[string]string) (string, error) {
 	}
 
 	return "", fmt.Errorf("No response code available")
-}
-
-func parseSuccess(log map[string]string) (bool, error) {
-	if code, err := parseResponseCode(log); err == nil {
-		if n, err := strconv.Atoi(code); err == nil {
-			return n < 400 || n == 401, nil
-		} else {
-			return false, fmt.Errorf("Error parsing response code: %s", err.Error())
-		}
-	}
-
-	// Default
-	return false, fmt.Errorf("No response code available")
 }
 
 func parseUrl(log map[string]string) (string, error) {
