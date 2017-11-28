@@ -135,6 +135,9 @@ func Start(name string, logHandler LogHandler) {
 			case syscall.SIGINT, syscall.SIGTERM:
 				logReader.Close()
 
+				// Begin flush of AI client
+				tclient.Channel().Flush()
+
 				// Wait for done
 				select {
 				case <-done:
@@ -145,9 +148,25 @@ func Start(name string, logHandler LogHandler) {
 
 				logWriter.Close()
 
+				// Close down telemetry channel and try to send out any remaining events.
+				select {
+				case <-tclient.Channel().Close(time.Second):
+					break
+				case <-time.After(time.Duration(2 * time.Second)):
+					break
+				}
+
 				os.Exit(-int(sig.(syscall.Signal)))
 			}
 		case <-done:
+			// Flush out events and close down AI sender.
+			select {
+			case <-tclient.Channel().Close(time.Second):
+				break
+			case <-time.After(time.Duration(2 * time.Second)):
+				break
+			}
+
 			os.Exit(0)
 		}
 	}
