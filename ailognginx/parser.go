@@ -34,6 +34,28 @@ var (
         "time_iso8601": true,
         "time_local": true,
         "uri": true}
+
+    measurementVariables = map[string]bool{
+        "body_bytes_sent": true,
+        "bytes_sent": true,
+        "connection_requests": true,
+        "content_length": true,
+        "connections_active": true,
+        "connections_reading": true,
+        "connections_writing": true,
+        "connections_waiting": true,
+        "gzip_ratio": true,
+        "request_length": true,
+        
+        // Eventually, these will be incorporated into remote dependencies:
+        "upstream_bytes_received": true,
+        "upstream_bytes_sent": true,
+        "upstream_connect_time": true,
+        "upstream_first_byte_time": true,
+        "upstream_header_time": true,
+        "upstream_response_length": true,
+        "upstream_response_time": true,
+    }
 )
 
 type LogParser struct {
@@ -96,17 +118,20 @@ func (parser *LogParser) CreateTelemetry(line string) (*appinsights.RequestTelem
         return nil, err
     }
     
-    telem := appinsights.NewRequestTelemetry(name, method, url, timestamp, duration, responseCode, success)
+    telem := appinsights.NewRequestTelemetry(method, url, duration, responseCode)
+    telem.Timestamp = timestamp
+    telem.Success = success
     
     // Optional properties
-    context := telem.Context()
+    context := telem.Context
     
     if useragent, ok := log["http_user_agent"]; ok {
-        context.User().SetUserAgent(useragent)
+        // Will not be supported much longer...
+        context.Tags["ai.user.userAgent"] = useragent
     }
     
     if userid, err := parseUserId(log); err == nil {
-        context.User().SetAuthenticatedUserId(userid)
+        context.User().SetAuthUserId(userid)
     }
     
     if clientip, err := parseClientIp(log); err == nil {
@@ -119,7 +144,17 @@ func (parser *LogParser) CreateTelemetry(line string) (*appinsights.RequestTelem
     // as properties. We assume that if it's in the log, you want that data.
     for k, v := range log {
         if _, ok := ignoreProperties[k]; !ok && v != "-" {
-            telem.SetProperty(k, v)
+            if _, ok := measurementVariables[k]; ok {
+                // Numbers (time/byte counts) go into measurements.
+                if fl, err := strconv.ParseFloat(v, 64); err == nil {
+                    telem.Measurements[k] = fl
+                } else {
+                    // Couldn't parse it -- make it a property
+                    telem.Properties[k] = v
+                }
+            } else {
+                telem.Properties[k] = v
+            }
         }
     }
     
@@ -207,7 +242,7 @@ func parseResponseCode(log map[string]string) (string, error) {
 func parseSuccess(log map[string]string) (bool, error) {
     if code, err := parseResponseCode(log); err == nil {
         if n, err := strconv.Atoi(code); err == nil {
-            return n < 400, nil
+            return n < 400 || n == 401, nil
         } else {
             return false, fmt.Errorf("Error parsing response code: %s", err.Error())
         }

@@ -81,13 +81,18 @@ func Start(name string, logHandler LogHandler) {
     
     tclient = appinsights.NewTelemetryClientFromConfig(tconfig)
     
+    // Propagate custom flags to common properties
+    for k, v := range flagCustom {
+        tclient.Context().CommonProperties[k] = v
+    }
+    
     msgs := log.New(os.Stderr, fmt.Sprintf("%s: ", name), log.Ldate | log.Ltime)
     if flagQuiet {
         msgs.SetOutput(ioutil.Discard)
     }
 
     cloud := tclient.Context().Cloud()
-    cloud.SetRoleName(flagRole)
+    cloud.SetRole(flagRole)
     cloud.SetRoleInstance(flagRoleInstance)
 
     var logWriter *LogWriter
@@ -188,12 +193,6 @@ main:
 
 func Track(t appinsights.Telemetry) {
     if t != nil {
-        if flagCustom != nil {
-            for k, v := range flagCustom {
-                t.SetProperty(k, v)
-            }
-        }
-        
         tclient.Track(t)
     }
 }

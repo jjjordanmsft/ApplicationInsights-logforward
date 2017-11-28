@@ -10,11 +10,12 @@ import (
     "time"
     
     "github.com/jjjordanmsft/ApplicationInsights-Go/appinsights"
+    "github.com/jjjordanmsft/ApplicationInsights-Go/appinsights/contracts"
     "github.com/jjjordanmsft/ApplicationInsights-logforward/common"
 )
 
 var (
-    severity = map[string]appinsights.SeverityLevel{
+    severity = map[string]contracts.SeverityLevel{
         "verbose": appinsights.Verbose,
         "information": appinsights.Information,
         "info": appinsights.Information,
@@ -47,7 +48,7 @@ type TraceHandler struct {
     batchTime		int
     channel		chan string
     sevstring		string
-    severity		appinsights.SeverityLevel
+    severity		contracts.SeverityLevel
 }
 
 func (handler *TraceHandler) Initialize(msgs *log.Logger) error {
