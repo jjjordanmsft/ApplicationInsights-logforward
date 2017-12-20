@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jjjordanmsft/ApplicationInsights-Go/appinsights"
+	"github.com/Microsoft/ApplicationInsights-Go/appinsights"
 	"github.com/jjjordanmsft/ApplicationInsights-logforward/common"
 )
 
@@ -123,22 +123,22 @@ func (parser *LogParser) CreateTelemetry(line string) (*appinsights.RequestTelem
 	telem.Success = success
 
 	// Optional properties
-	context := telem.Context
+	tags := telem.Tags
 
 	if useragent, ok := log["http_user_agent"]; ok {
 		// Will not be supported much longer...
-		context.Tags["ai.user.userAgent"] = useragent
+		tags["ai.user.userAgent"] = useragent
 	}
 
 	if userid, err := parseUserId(log); err == nil {
-		context.User().SetAuthUserId(userid)
+		tags.User().SetAuthUserId(userid)
 	}
 
 	if clientip, err := parseClientIp(log); err == nil {
-		context.Location().SetIp(clientip)
+		tags.Location().SetIp(clientip)
 	}
 
-	context.Operation().SetName(name)
+	tags.Operation().SetName(name)
 
 	// Anything else in the log that isn't covered here should be included
 	// as properties. We assume that if it's in the log, you want that data.
