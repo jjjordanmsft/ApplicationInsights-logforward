@@ -31,7 +31,7 @@ func (handler *NginxHandler) Initialize(msgs *log.Logger) error {
 	}
 
 	var err error
-	handler.parser, err = NewLogParser(handler.format)
+	handler.parser, err = NewLogParser(handler.format, newStatusReader())
 	return err
 }
 

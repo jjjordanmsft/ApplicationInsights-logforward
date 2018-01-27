@@ -17,6 +17,10 @@ const (
 
 var (
 	ignoreProperties = map[string]bool{
+		"connections_active":   true,
+		"connections_reading":  true,
+		"connections_writing":  true,
+		"connections_waiting":  true,
 		"host":                 true,
 		"http_user_agent":      true,
 		"http_x_forwarded_for": true,
@@ -60,9 +64,10 @@ var (
 
 type LogParser struct {
 	parser *common.Parser
+	status *statusReader
 }
 
-func NewLogParser(logFormat string) (*LogParser, error) {
+func NewLogParser(logFormat string, status *statusReader) (*LogParser, error) {
 	parser, err := common.NewParser(logFormat, &common.ParserOptions{
 		VariableRegex:  `\$[a-zA-Z0-9_]+`,
 		EscapeRegex:    `\\x[0-9a-fA-F]{2}|\\[\\"]|\\u[0-9a-fA-F]{4}`,
@@ -74,7 +79,7 @@ func NewLogParser(logFormat string) (*LogParser, error) {
 		return nil, err
 	}
 
-	return &LogParser{parser: parser}, nil
+	return &LogParser{parser: parser, status: status}, nil
 }
 
 func (parser *LogParser) CreateTelemetry(line string) (*appinsights.RequestTelemetry, error) {
@@ -156,6 +161,10 @@ func (parser *LogParser) CreateTelemetry(line string) (*appinsights.RequestTelem
 				telem.Properties[k] = v
 			}
 		}
+	}
+
+	if parser.status != nil {
+		parseStubStatus(parser.status, log)
 	}
 
 	return telem, nil
@@ -364,4 +373,27 @@ func parseUserId(log map[string]string) (string, error) {
 	}
 
 	return "", fmt.Errorf("User ID not in log")
+}
+
+func parseStubStatus(status *statusReader, log map[string]string) {
+	if valstr, ok := log["connections_active"]; ok {
+		if val, err := strconv.ParseInt(valstr, 10, 32); err == nil {
+			status.SampleActiveConnections(int(val))
+		}
+	}
+	if valstr, ok := log["connections_reading"]; ok {
+		if val, err := strconv.ParseInt(valstr, 10, 32); err == nil {
+			status.SampleReadingConnections(int(val))
+		}
+	}
+	if valstr, ok := log["connections_writing"]; ok {
+		if val, err := strconv.ParseInt(valstr, 10, 32); err == nil {
+			status.SampleWritingConnections(int(val))
+		}
+	}
+	if valstr, ok := log["connections_waiting"]; ok {
+		if val, err := strconv.ParseInt(valstr, 10, 32); err == nil {
+			status.SampleWaitingConnections(int(val))
+		}
+	}
 }
