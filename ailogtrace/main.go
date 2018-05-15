@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jjjordanmsft/ApplicationInsights-Go/appinsights"
-	"github.com/jjjordanmsft/ApplicationInsights-Go/appinsights/contracts"
+	"github.com/Microsoft/ApplicationInsights-Go/appinsights"
+	"github.com/Microsoft/ApplicationInsights-Go/appinsights/contracts"
 	"github.com/jjjordanmsft/ApplicationInsights-logforward/common"
 )
 

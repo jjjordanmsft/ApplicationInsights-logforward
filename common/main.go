@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jjjordanmsft/ApplicationInsights-Go/appinsights"
+	"github.com/Microsoft/ApplicationInsights-Go/appinsights"
 )
 
 type LogHandler interface {
@@ -47,9 +47,7 @@ func InitFlags() {
 func Start(name string, logHandler LogHandler) {
 	if flagDebug {
 		log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
-
-		ailistener := appinsights.NewDiagnosticsMessageListener()
-		go ailistener.ProcessMessages(writeAiLog)
+		appinsights.NewDiagnosticsMessageListener(writeAiLog)
 	} else {
 		log.SetOutput(ioutil.Discard)
 	}
@@ -90,7 +88,7 @@ func Start(name string, logHandler LogHandler) {
 		msgs.SetOutput(ioutil.Discard)
 	}
 
-	cloud := tclient.Context().Cloud()
+	cloud := tclient.Context().Tags.Cloud()
 	cloud.SetRole(flagRole)
 	cloud.SetRoleInstance(flagRoleInstance)
 
@@ -217,6 +215,7 @@ func Track(t appinsights.Telemetry) {
 	}
 }
 
-func writeAiLog(msg string) {
+func writeAiLog(msg string) error {
 	log.Println(msg)
+	return nil
 }
