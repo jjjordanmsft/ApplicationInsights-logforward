@@ -7,7 +7,7 @@ Input can come from logfiles (which are tailed), stdin, or FIFOs.
 To include this in a Docker container, you can add this to your Dockerfile:
 
 ```docker
-        ENV AILOG_VERSION 0.2.0
+        ENV AILOG_VERSION 0.3.1
         ADD https://github.com/jjjordanmsft/ApplicationInsights-logforward/releases/download/$AILOG_VERSION/ailognginx-$AILOG_VERSION-linux-amd64 \
             https://github.com/jjjordanmsft/ApplicationInsights-logforward/releases/download/$AILOG_VERSION/ailogtrace-$AILOG_VERSION-linux-amd64 /
         RUN mv /ailognginx-$AILOG_VERSION-linux-amd64 /ailognginx \
@@ -18,7 +18,7 @@ To include this in a Docker container, you can add this to your Dockerfile:
 If you're a little more pedantic, you can also verify the signatures:
 
 ```docker
-        ENV AILOG_VERSION 0.2.0
+        ENV AILOG_VERSION 0.3.1
         RUN apt-get -y -qq update \
          && apt-get -y -qq install curl ca-certificates gpg dirmngr --no-install-recommends \
          && curl -L -o /ailognginx https://github.com/jjjordanmsft/ApplicationInsights-logforward/releases/download/$AILOG_VERSION/ailognginx-$AILOG_VERSION-linux-amd64 \
