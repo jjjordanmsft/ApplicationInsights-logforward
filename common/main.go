@@ -26,6 +26,7 @@ var (
 	flagInfile       string
 	flagOutfile      string
 	flagCustom       customProperties
+	flagFlushWait    time.Duration
 	flagDebug        bool
 	flagQuiet        bool
 
@@ -39,6 +40,7 @@ func InitFlags() {
 	flag.StringVar(&flagRoleInstance, "roleinstance", "", "Telemetry role instance. Defaults to the machine hostname")
 	flag.StringVar(&flagInfile, "in", "", "Input file, or '-' for stdin (required)")
 	flag.StringVar(&flagOutfile, "out", "", "Output file, '-' for stdout, 'stderr' for stderr")
+	flag.DurationVar(&flagFlushWait, "flush", 3*time.Second, "Timeout to flush telemetry when shutting down")
 	flag.BoolVar(&flagDebug, "debug", false, "Show debugging output")
 	flag.BoolVar(&flagQuiet, "quiet", false, "Don't write any output messages")
 	flag.Var(&flagCustom, "custom", "Include custom property in telemetry like 'key=value'. Can be used multiple times")
@@ -148,9 +150,9 @@ func Start(name string, logHandler LogHandler) {
 
 				// Close down telemetry channel and try to send out any remaining events.
 				select {
-				case <-tclient.Channel().Close(time.Second):
+				case <-tclient.Channel().Close(flagFlushWait):
 					break
-				case <-time.After(time.Duration(2 * time.Second)):
+				case <-time.After(flagFlushWait):
 					break
 				}
 
@@ -159,9 +161,9 @@ func Start(name string, logHandler LogHandler) {
 		case <-done:
 			// Flush out events and close down AI sender.
 			select {
-			case <-tclient.Channel().Close(time.Second):
+			case <-tclient.Channel().Close(flagFlushWait):
 				break
-			case <-time.After(time.Duration(2 * time.Second)):
+			case <-time.After(flagFlushWait):
 				break
 			}
 
