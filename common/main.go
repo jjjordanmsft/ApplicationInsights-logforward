@@ -182,7 +182,7 @@ main:
 
 				err := logHandler.Receive(event.data)
 				if err != nil {
-					msgs.Printf("Error processing log line. Error: %s Original log line: %s", err.Error(), event.data)
+					msgs.Println(fmt.Sprintf("Error processing log line. Error: %s Original log line: %s", err.Error(), event.data))
 				}
 			}
 
