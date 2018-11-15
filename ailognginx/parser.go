@@ -59,10 +59,11 @@ var (
 )
 
 type LogParser struct {
-	parser *common.Parser
+	parser   *common.Parser
+	noReject bool
 }
 
-func NewLogParser(logFormat string) (*LogParser, error) {
+func NewLogParser(logFormat string, noReject bool) (*LogParser, error) {
 	parser, err := common.NewParser(logFormat, &common.ParserOptions{
 		VariableRegex:  `\$[a-zA-Z0-9_]+`,
 		EscapeRegex:    `\\x[0-9a-fA-F]{2}|\\[\\"]|\\u[0-9a-fA-F]{4}`,
@@ -74,7 +75,10 @@ func NewLogParser(logFormat string) (*LogParser, error) {
 		return nil, err
 	}
 
-	return &LogParser{parser: parser}, nil
+	return &LogParser{
+		parser:   parser,
+		noReject: noReject,
+	}, nil
 }
 
 func (parser *LogParser) CreateTelemetry(line string) (*appinsights.RequestTelemetry, error) {
@@ -84,32 +88,32 @@ func (parser *LogParser) CreateTelemetry(line string) (*appinsights.RequestTelem
 	}
 
 	name, err := parseName(log)
-	if err != nil {
+	if err != nil && !parser.noReject {
 		return nil, fmt.Errorf("Error parsing request name: %s", err.Error())
 	}
 
 	timestamp, err := parseTimestamp(log)
-	if err != nil {
+	if err != nil && !parser.noReject {
 		return nil, fmt.Errorf("Error parsing timestamp: %s", err.Error())
 	}
 
 	duration, err := parseDuration(log)
-	if err != nil {
+	if err != nil && !parser.noReject {
 		return nil, fmt.Errorf("Error parsing duration: %s", err.Error())
 	}
 
 	responseCode, err := parseResponseCode(log)
-	if err != nil {
+	if err != nil && !parser.noReject {
 		return nil, fmt.Errorf("Error parsing response code: %s", err.Error())
 	}
 
 	method, err := parseMethod(log)
-	if err != nil {
+	if err != nil && !parser.noReject {
 		return nil, err
 	}
 
 	url, err := parseUrl(log)
-	if err != nil {
+	if err != nil && !parser.noReject {
 		return nil, err
 	}
 

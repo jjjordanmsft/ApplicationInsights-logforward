@@ -12,15 +12,17 @@ func main() {
 
 	common.InitFlags()
 	flag.StringVar(&handler.format, "format", "", "nginx log format (required)")
+	flag.BoolVar(&handler.noReject, "noreject", false, "don't reject log lines that may not parse perfectly")
 	flag.Parse()
 
 	common.Start("ailognginx", handler)
 }
 
 type NginxHandler struct {
-	format string
-	msgs   *log.Logger
-	parser *LogParser
+	format   string
+	noReject bool
+	msgs     *log.Logger
+	parser   *LogParser
 }
 
 func (handler *NginxHandler) Initialize(msgs *log.Logger) error {
@@ -31,7 +33,7 @@ func (handler *NginxHandler) Initialize(msgs *log.Logger) error {
 	}
 
 	var err error
-	handler.parser, err = NewLogParser(handler.format)
+	handler.parser, err = NewLogParser(handler.format, handler.noReject)
 	return err
 }
 
