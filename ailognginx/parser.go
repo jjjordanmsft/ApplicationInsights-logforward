@@ -279,7 +279,7 @@ func parseUrl(log map[string]string, noQuery bool) (string, error) {
 		reqpath.Host = vhost
 	}
 
-	if noQuery == true {
+	if noQuery {
 		reqpath.RawQuery = ""
 	}
 
