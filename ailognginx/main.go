@@ -22,7 +22,7 @@ func main() {
 type NginxHandler struct {
 	format   string
 	noReject bool
-	noQuery bool
+	noQuery  bool
 	msgs     *log.Logger
 	parser   *LogParser
 }

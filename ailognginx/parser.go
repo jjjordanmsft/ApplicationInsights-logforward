@@ -61,7 +61,7 @@ var (
 type LogParser struct {
 	parser   *common.Parser
 	noReject bool
-	noQuery bool
+	noQuery  bool
 }
 
 func NewLogParser(logFormat string, noReject bool, noQuery bool) (*LogParser, error) {
@@ -79,7 +79,7 @@ func NewLogParser(logFormat string, noReject bool, noQuery bool) (*LogParser, er
 	return &LogParser{
 		parser:   parser,
 		noReject: noReject,
-		noQuery: noQuery
+		noQuery:  noQuery,
 	}, nil
 }
 
@@ -278,9 +278,9 @@ func parseUrl(log map[string]string, noQuery bool) (string, error) {
 	if reqpath.Host == "" && vhostok {
 		reqpath.Host = vhost
 	}
-	
+
 	if noQuery == true {
-		reqpath.RawQuery = nil
+		reqpath.RawQuery = ""
 	}
 
 	return reqpath.String(), nil
