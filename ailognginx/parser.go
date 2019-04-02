@@ -61,9 +61,10 @@ var (
 type LogParser struct {
 	parser   *common.Parser
 	noReject bool
+	noQuery bool
 }
 
-func NewLogParser(logFormat string, noReject bool) (*LogParser, error) {
+func NewLogParser(logFormat string, noReject bool, noQuery bool) (*LogParser, error) {
 	parser, err := common.NewParser(logFormat, &common.ParserOptions{
 		VariableRegex:  `\$[a-zA-Z0-9_]+`,
 		EscapeRegex:    `\\x[0-9a-fA-F]{2}|\\[\\"]|\\u[0-9a-fA-F]{4}`,
@@ -78,6 +79,7 @@ func NewLogParser(logFormat string, noReject bool) (*LogParser, error) {
 	return &LogParser{
 		parser:   parser,
 		noReject: noReject,
+		noQuery: noQuery
 	}, nil
 }
 
@@ -112,7 +114,7 @@ func (parser *LogParser) CreateTelemetry(line string) (*appinsights.RequestTelem
 		return nil, err
 	}
 
-	url, err := parseUrl(log)
+	url, err := parseUrl(log, parser.noQuery)
 	if err != nil && !parser.noReject {
 		return nil, err
 	}
@@ -164,7 +166,7 @@ func parseName(log map[string]string) (string, error) {
 		return val, nil
 	}
 
-	if url, err := parseUrl(log); err == nil {
+	if url, err := parseUrl(log, true); err == nil {
 		if method, err := parseMethod(log); err == nil {
 			return fmt.Sprintf("%s %s", method, url), nil
 		} else {
@@ -237,7 +239,7 @@ func parseResponseCode(log map[string]string) (string, error) {
 	return "", fmt.Errorf("No response code available")
 }
 
-func parseUrl(log map[string]string) (string, error) {
+func parseUrl(log map[string]string, noQuery bool) (string, error) {
 	// We try to piece this together from various things we find in the log
 	var reqpath *url.URL
 
@@ -275,6 +277,10 @@ func parseUrl(log map[string]string) (string, error) {
 
 	if reqpath.Host == "" && vhostok {
 		reqpath.Host = vhost
+	}
+	
+	if noQuery == true {
+		reqpath.RawQuery = nil
 	}
 
 	return reqpath.String(), nil
