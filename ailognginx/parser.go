@@ -162,10 +162,6 @@ func (parser *LogParser) CreateTelemetry(line string) (*appinsights.RequestTelem
 }
 
 func parseName(log map[string]string) (string, error) {
-	if val, ok := log["request"]; ok {
-		return val, nil
-	}
-
 	if url, err := parseUrl(log, true); err == nil {
 		if method, err := parseMethod(log); err == nil {
 			return fmt.Sprintf("%s %s", method, url), nil
