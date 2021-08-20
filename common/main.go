@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Microsoft/ApplicationInsights-Go/appinsights"
+	"github.com/microsoft/ApplicationInsights-Go/appinsights"
 )
 
 type LogHandler interface {
