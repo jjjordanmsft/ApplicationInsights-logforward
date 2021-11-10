@@ -18,7 +18,6 @@ const (
 var (
 	ignoreProperties = map[string]bool{
 		"host":                 true,
-		"http_user_agent":      true,
 		"http_x_forwarded_for": true,
 		"msec":                 true,
 		"remote_addr":          true,
@@ -125,10 +124,7 @@ func (parser *LogParser) CreateTelemetry(line string) (*appinsights.RequestTelem
 	// Optional properties
 	tags := telem.Tags
 
-	if useragent, ok := log["http_user_agent"]; ok {
-		// Will not be supported much longer...
-		tags["ai.user.userAgent"] = useragent
-	}
+	// User agent no longer supported by AI schema.  It should be picked up into custom dimensions...
 
 	if userid, err := parseUserId(log); err == nil {
 		tags.User().SetAuthUserId(userid)
